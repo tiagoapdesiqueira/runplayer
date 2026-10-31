@@ -1,0 +1,113 @@
+name: Build iOS (unsigned IPA)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Ruby (for CocoaPods)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: false
+
+      - name: Show tool versions
+        run: |
+          node -v
+          npm -v
+          ruby -v
+          pod --version || sudo gem install cocoapods -N
+          xcodebuild -version
+
+      - name: Install JS dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Expo prebuild (ios)
+        run: npx expo prebuild --platform ios --clean --non-interactive
+
+      - name: Pod install
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Detect workspace and scheme
+        id: xcinfo
+        working-directory: ios
+        run: |
+          WORKSPACE=$(ls -d *.xcworkspace | head -n1)
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Workspace: $WORKSPACE"
+          echo "Scheme:    $SCHEME"
+
+      - name: Build (xcodebuild, unsigned Release)
+        id: build
+        working-directory: ios
+        run: |
+          set -o pipefail
+          mkdir -p ../build
+          xcodebuild \
+            -workspace "${{ steps.xcinfo.outputs.workspace }}" \
+            -scheme "${{ steps.xcinfo.outputs.scheme }}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            EXPANDED_CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            -arch arm64 \
+            clean build 2>&1 | tee ../build/xcodebuild.log
+
+      - name: Package IPA (zip Payload/)
+        working-directory: ios
+        run: |
+          set -e
+          APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 2 -name "*.app" -type d | head -n1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERRO: nenhum .app encontrado em build/Build/Products/Release-iphoneos" >&2
+            exit 1
+          fi
+          echo ".app encontrado: $APP_PATH"
+          APP_NAME=$(basename "$APP_PATH" .app)
+          mkdir -p ../build/Payload
+          cp -R "$APP_PATH" "../build/Payload/"
+          cd ../build
+          zip -qry "${APP_NAME}-unsigned.ipa" Payload
+          ls -lh "${APP_NAME}-unsigned.ipa"
+
+      - name: Upload IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipa-unsigned
+          path: build/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 14

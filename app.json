@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "RunPlayer",
+    "slug": "runplayer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "ios": {
+      "bundleIdentifier": "com.tiago.runplayer",
+      "supportsTablet": false,
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true,
+        "CFBundleDisplayName": "RunPlayer"
+      }
+    },
+    "plugins": [
+      "expo-file-system"
+    ]
+  }
+}
