@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import TrackPlayer, {
   AppKilledPlaybackBehavior,
   Capability,
