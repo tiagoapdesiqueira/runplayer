@@ -74,7 +74,6 @@ jobs:
             CODE_SIGN_ENTITLEMENTS="" \
             EXPANDED_CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            -arch arm64 \
             clean build 2>&1 | tee ../build/xcodebuild.log
 
       - name: Package IPA (zip Payload/)
