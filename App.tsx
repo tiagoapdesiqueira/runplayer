@@ -54,8 +54,23 @@ async function setupPlayer() {
   });
 }
 
+async function ensureFolderVisible(): Promise<void> {
+  if (!DOC_DIR) return;
+  const marker = DOC_DIR + 'LEIA-ME.txt';
+  try {
+    const info = await FileSystem.getInfoAsync(marker);
+    if (info.exists) return;
+    await FileSystem.writeAsStringAsync(
+      marker,
+      'Coloque seus arquivos .mp3 nesta pasta.\n' +
+        'Depois, no RunPlayer, toque no botão de recarregar (circulo com seta).\n'
+    );
+  } catch {}
+}
+
 async function listMp3s(): Promise<Mp3[]> {
   if (!DOC_DIR) return [];
+  await ensureFolderVisible();
   const entries = await FileSystem.readDirectoryAsync(DOC_DIR);
   return entries
     .filter((n) => n.toLowerCase().endsWith('.mp3'))
