@@ -12,13 +12,16 @@ type Listener = (moving: boolean) => void;
 let subscription: ReturnType<typeof Accelerometer.addListener> | null = null;
 let listeners: Set<Listener> = new Set();
 let samples: number[] = [];
-let lastStateMoving = true;
+let lastStateMoving = false;
+let hasEverMoved = false;
 let stillStart = 0;
 let movingStart = 0;
 
 function emit(moving: boolean) {
   if (moving === lastStateMoving) return;
+  if (moving) hasEverMoved = true;
   lastStateMoving = moving;
+  if (!hasEverMoved) return;
   for (const fn of listeners) {
     try {
       fn(moving);
@@ -56,7 +59,8 @@ export async function startAutoPause(onChange: Listener): Promise<boolean> {
     samples = [];
     stillStart = 0;
     movingStart = 0;
-    lastStateMoving = true;
+    lastStateMoving = false;
+    hasEverMoved = false;
     subscription = Accelerometer.addListener(({ x, y, z }) => {
       handleSample(x, y, z);
     });
@@ -72,5 +76,6 @@ export function stopAutoPause(onChange?: Listener) {
     subscription.remove();
     subscription = null;
     samples = [];
+    hasEverMoved = false;
   }
 }

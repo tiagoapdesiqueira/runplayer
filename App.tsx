@@ -2,17 +2,20 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Dimensions,
   FlatList,
   Image,
   Modal,
   Pressable,
+  RefreshControl,
   SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,6 +24,7 @@ import TrackPlayer, {
   AppKilledPlaybackBehavior,
   Capability,
   Event,
+  RepeatMode,
   State,
   Track,
   useProgress,
@@ -96,6 +100,9 @@ async function setupPlayer() {
     ],
     progressUpdateEventInterval: 1,
   });
+  try {
+    await TrackPlayer.setRepeatMode(RepeatMode.Queue);
+  } catch {}
 }
 
 async function ensureFolderVisible(): Promise<void> {
@@ -198,7 +205,11 @@ const ArtworkThumb = React.memo(function ArtworkThumb({
   if (!uri) {
     return (
       <View style={[style, styles.artFallback]}>
-        <Text style={{ fontSize: size * 0.4, color: theme.textDim }}>♪</Text>
+        <Ionicons
+          name="musical-notes"
+          size={size * 0.4}
+          color={theme.textDim}
+        />
       </View>
     );
   }
@@ -304,7 +315,7 @@ function PlaylistRow({
       ]}
     >
       <View style={styles.plIcon}>
-        <Text style={styles.plIconText}>♪</Text>
+        <Ionicons name="musical-notes" size={24} color={theme.accent} />
       </View>
       <View style={styles.rowText}>
         <Text numberOfLines={1} style={styles.rowTitle}>
@@ -315,7 +326,12 @@ function PlaylistRow({
           {playlist.trackIds.length === 1 ? 'musica' : 'musicas'}
         </Text>
       </View>
-      <Text style={styles.plChevron}>›</Text>
+      <Ionicons
+        name="chevron-forward"
+        size={22}
+        color={theme.textDim}
+        style={{ marginRight: spacing.sm }}
+      />
     </Pressable>
   );
 }
@@ -361,7 +377,11 @@ function MiniPlayer({
             onToggle();
           }}
         >
-          <Text style={styles.miniBtnText}>{playing ? '❚❚' : '▶'}</Text>
+          <Ionicons
+            name={playing ? 'pause' : 'play'}
+            size={18}
+            color={theme.accentDark}
+          />
         </Pressable>
       </Pressable>
     </View>
@@ -406,7 +426,7 @@ function AddToPlaylistModal({
               }}
             >
               <View style={styles.modalItemIcon}>
-                <Text style={styles.modalItemIconText}>+</Text>
+                <Ionicons name="add" size={20} color={theme.accent} />
               </View>
               <Text style={styles.modalItemText}>Criar nova playlist</Text>
             </Pressable>
@@ -421,7 +441,11 @@ function AddToPlaylistModal({
                 }}
               >
                 <View style={styles.modalItemIcon}>
-                  <Text style={styles.modalItemIconText}>♪</Text>
+                  <Ionicons
+                    name="musical-notes"
+                    size={18}
+                    color={theme.accent}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={styles.modalItemText}>
@@ -507,7 +531,7 @@ function NowPlaying({
               }}
               style={styles.npHeaderBtn}
             >
-              <Text style={styles.npHeaderIcon}>⌄</Text>
+              <Ionicons name="chevron-down" size={28} color={theme.text} />
             </Pressable>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={styles.npHeaderLabel}>TOCANDO AGORA</Text>
@@ -554,7 +578,7 @@ function NowPlaying({
                 onShuffle();
               }}
             >
-              <Text style={styles.npSideIcon}>⇄</Text>
+              <Ionicons name="shuffle" size={22} color={theme.text} />
             </Pressable>
             <Pressable
               hitSlop={10}
@@ -564,7 +588,7 @@ function NowPlaying({
                 onPrev();
               }}
             >
-              <Text style={styles.npCtrlIcon}>⏮</Text>
+              <Ionicons name="play-skip-back" size={32} color={theme.text} />
             </Pressable>
             <Pressable
               hitSlop={10}
@@ -574,7 +598,11 @@ function NowPlaying({
                 onToggle();
               }}
             >
-              <Text style={styles.npPlayIcon}>{playing ? '❚❚' : '▶'}</Text>
+              <Ionicons
+                name={playing ? 'pause' : 'play'}
+                size={30}
+                color={theme.accentDark}
+              />
             </Pressable>
             <Pressable
               hitSlop={10}
@@ -584,7 +612,7 @@ function NowPlaying({
                 onNext();
               }}
             >
-              <Text style={styles.npCtrlIcon}>⏭</Text>
+              <Ionicons name="play-skip-forward" size={32} color={theme.text} />
             </Pressable>
             <View style={styles.npSideBtn} />
           </View>
@@ -609,6 +637,7 @@ export default function App() {
   const [context, setContext] = useState<Context>({ kind: 'library' });
   const [workoutActive, setWorkoutActive] = useState(false);
   const [workoutStats, setWorkoutStats] = useState<WorkoutStats | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -675,6 +704,27 @@ export default function App() {
     }
   }, [enrich]);
 
+  const softReload = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const list = await listMp3s();
+      const existing = filesByIdRef.current;
+      const merged: Enriched[] = list.map((f) => existing.get(f.id) ?? f);
+      filesByIdRef.current = new Map(merged.map((f) => [f.id, f]));
+      setFiles(merged);
+      const pls = await loadPlaylists();
+      setPlaylists(pls);
+      enrich(list.filter((f) => !existing.get(f.id)?.meta));
+      if (!playingRef.current && !currentId) {
+        await TrackPlayer.reset();
+        resetVolumeState();
+        if (merged.length > 0) await TrackPlayer.add(toTracks(merged));
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [currentId, enrich]);
+
   useEffect(() => {
     (async () => {
       if (didSetupRef.current) return;
@@ -738,6 +788,15 @@ export default function App() {
   useEffect(() => {
     playingRef.current = playing;
   }, [playing]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && !loading) {
+        softReload().catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, [softReload, loading]);
 
   useEffect(() => {
     workoutActiveRef.current = workoutActive;
@@ -1010,7 +1069,12 @@ export default function App() {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" />
         <View style={styles.center}>
-          <Text style={styles.emptyIcon}>♪</Text>
+          <Ionicons
+            name="musical-notes-outline"
+            size={64}
+            color={theme.textDim}
+            style={{ marginBottom: spacing.lg }}
+          />
           <Text style={styles.emptyTitle}>Nenhuma musica ainda</Text>
           <Text style={styles.emptyHelp}>
             Abra o app Arquivos no iPhone, va em{'\n'}
@@ -1053,9 +1117,9 @@ export default function App() {
                   hapLight();
                   setViewingPlaylistId(null);
                 }}
-                style={styles.libReload}
+                style={styles.iconBtn}
               >
-                <Text style={styles.libReloadIcon}>‹</Text>
+                <Ionicons name="chevron-back" size={22} color={theme.text} />
               </Pressable>
               <View style={{ flex: 1, marginLeft: spacing.md }}>
                 <Text style={styles.libKicker}>Playlist</Text>
@@ -1074,14 +1138,19 @@ export default function App() {
                     );
                   }
                 }}
-                style={styles.libReload}
+                style={styles.iconBtnAccent}
               >
-                <Text style={styles.libReloadIcon}>▶</Text>
+                <Ionicons name="play" size={18} color={theme.accentDark} />
               </Pressable>
             </View>
             {viewingPlaylistSongs.length === 0 ? (
               <View style={styles.center}>
-                <Text style={styles.emptyIcon}>♪</Text>
+                <Ionicons
+            name="musical-notes-outline"
+            size={64}
+            color={theme.textDim}
+            style={{ marginBottom: spacing.lg }}
+          />
                 <Text style={styles.emptyTitle}>Playlist vazia</Text>
                 <Text style={styles.emptyHelp}>
                   Volte na aba Musicas, segure uma musica e adicione a esta
@@ -1138,16 +1207,6 @@ export default function App() {
                 <Text style={styles.libKicker}>Biblioteca</Text>
                 <Text style={styles.libTitle}>Suas musicas</Text>
               </View>
-              <Pressable
-                hitSlop={10}
-                onPress={() => {
-                  hapLight();
-                  reload();
-                }}
-                style={styles.libReload}
-              >
-                <Text style={styles.libReloadIcon}>↻</Text>
-              </Pressable>
             </View>
 
             {workoutActive && workoutStats ? (
@@ -1167,7 +1226,12 @@ export default function App() {
               </Pressable>
             ) : (
               <Pressable style={styles.workoutStart} onPress={handleStartWorkout}>
-                <Text style={styles.workoutStartIcon}>▶</Text>
+                <Ionicons
+                  name="walk"
+                  size={18}
+                  color={theme.accentDark}
+                  style={{ marginRight: spacing.sm }}
+                />
                 <Text style={styles.workoutStartText}>Iniciar treino</Text>
               </Pressable>
             )}
@@ -1183,6 +1247,13 @@ export default function App() {
                   paddingBottom: 140,
                   paddingTop: spacing.sm,
                 }}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={softReload}
+                    tintColor={theme.accent}
+                  />
+                }
                 renderItem={({ item }) => (
                   <SongRow
                     item={item}
@@ -1207,13 +1278,23 @@ export default function App() {
                       createPlaylist();
                     }}
                   >
-                    <Text style={styles.plCreateIcon}>+</Text>
+                    <Ionicons
+                      name="add"
+                      size={22}
+                      color={theme.accent}
+                      style={{ marginRight: spacing.sm }}
+                    />
                     <Text style={styles.plCreateText}>Nova playlist</Text>
                   </Pressable>
                 </View>
                 {playlists.length === 0 ? (
                   <View style={styles.center}>
-                    <Text style={styles.emptyIcon}>♪</Text>
+                    <Ionicons
+            name="musical-notes-outline"
+            size={64}
+            color={theme.textDim}
+            style={{ marginBottom: spacing.lg }}
+          />
                     <Text style={styles.emptyTitle}>Sem playlists ainda</Text>
                     <Text style={styles.emptyHelp}>
                       Toque em "Nova playlist" para comecar, ou segure uma
@@ -1346,7 +1427,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 2,
   },
-  libReload: {
+  iconBtn: {
     width: 44,
     height: 44,
     borderRadius: radius.full,
@@ -1354,7 +1435,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  libReloadIcon: { color: theme.text, fontSize: 20 },
+  iconBtnAccent: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    backgroundColor: theme.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   workoutStart: {
     flexDirection: 'row',

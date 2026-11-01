@@ -18,6 +18,8 @@ const INITIAL: WorkoutStats = {
   lastKmAnnounced: 0,
 };
 
+const MIN_DIST_FOR_PACE = 100;
+
 type Listener = (stats: WorkoutStats) => void;
 
 let watcher: Location.LocationSubscription | null = null;
@@ -27,6 +29,35 @@ let stats: WorkoutStats = { ...INITIAL };
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let bpmTimer: ReturnType<typeof setInterval> | null = null;
 let listeners: Set<Listener> = new Set();
+let preferredVoice: string | null = null;
+
+async function selectVoice(): Promise<string | null> {
+  try {
+    const voices = await Speech.getAvailableVoicesAsync();
+    const ptBr = voices.filter((v) =>
+      (v.language || '').toLowerCase().startsWith('pt-br')
+    );
+    if (ptBr.length === 0) return null;
+    const prefer = (predicate: (v: Speech.Voice) => boolean) =>
+      ptBr.find(predicate)?.identifier ?? null;
+    return (
+      prefer((v) => /siri/i.test(v.identifier || '') && /enhanced|premium/i.test(String((v as any).quality ?? ''))) ||
+      prefer((v) => /siri/i.test(v.identifier || '')) ||
+      prefer((v) => /premium/i.test(String((v as any).quality ?? ''))) ||
+      prefer((v) => /enhanced/i.test(String((v as any).quality ?? ''))) ||
+      ptBr[0]?.identifier ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function warmupVoice(): Promise<void> {
+  if (!preferredVoice) {
+    preferredVoice = await selectVoice();
+  }
+}
 
 function haversine(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const R = 6371000;
@@ -55,6 +86,17 @@ function formatPaceLabel(secPerKm: number): string {
   return `${m} e ${sStr}`;
 }
 
+function speak(msg: string) {
+  try {
+    Speech.speak(msg, {
+      language: 'pt-BR',
+      voice: preferredVoice ?? undefined,
+      rate: 0.98,
+      pitch: 1.0,
+    });
+  } catch {}
+}
+
 function announceKm(km: number) {
   const paceLabel = formatPaceLabel(stats.paceSecPerKm);
   const parts: string[] = [`Quilometro ${km}.`];
@@ -62,25 +104,23 @@ function announceKm(km: number) {
   if (stats.bpm != null && stats.bpm > 30 && stats.bpm < 230) {
     parts.push(`Batimentos ${stats.bpm}.`);
   }
-  try {
-    Speech.speak(parts.join(' '), {
-      language: 'pt-BR',
-      rate: 0.98,
-      pitch: 1.0,
-    });
-  } catch {}
+  speak(parts.join(' '));
 }
 
 function tick() {
   if (startedAt === 0) return;
   stats.elapsedS = Math.max(0, (Date.now() - startedAt) / 1000);
-  const km = stats.distanceM / 1000;
-  if (km > 0) stats.paceSecPerKm = stats.elapsedS / km;
+  if (stats.distanceM >= MIN_DIST_FOR_PACE) {
+    const km = stats.distanceM / 1000;
+    stats.paceSecPerKm = stats.elapsedS / km;
+  } else {
+    stats.paceSecPerKm = 0;
+  }
   emit();
 }
 
 function handlePosition(loc: Location.LocationObject) {
-  const { latitude, longitude, accuracy, speed } = loc.coords;
+  const { latitude, longitude, accuracy } = loc.coords;
   const now = loc.timestamp;
   if (accuracy != null && accuracy > 25) return;
   if (!lastPoint) {
@@ -118,6 +158,7 @@ export async function startWorkout(onChange: Listener): Promise<boolean> {
   try {
     await Location.requestBackgroundPermissionsAsync();
   } catch {}
+  await warmupVoice();
   stats = { ...INITIAL };
   lastPoint = null;
   startedAt = Date.now();
@@ -173,7 +214,5 @@ export function announceWorkoutEnd() {
   const msg = paceLabel
     ? `Treino finalizado. ${km} quilometros. Ritmo medio ${paceLabel}.`
     : `Treino finalizado. ${km} quilometros.`;
-  try {
-    Speech.speak(msg, { language: 'pt-BR', rate: 0.98 });
-  } catch {}
+  speak(msg);
 }
