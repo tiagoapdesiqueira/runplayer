@@ -48,6 +48,7 @@ import {
   WorkoutStats,
 } from './workout';
 import { requestHeartRateAuth } from './healthkit';
+import { updateWidget } from './widgetSync';
 
 const DOC_DIR = FileSystem.documentDirectory ?? '';
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -717,6 +718,13 @@ export default function App() {
       setPalette(p);
     })();
   }, [current?.meta?.artworkUri]);
+
+  useEffect(() => {
+    if (!current) return;
+    const title = current.meta?.title || current.name;
+    const artist = current.meta?.artist || '';
+    updateWidget(title, artist, playing).catch(() => {});
+  }, [current, playing]);
 
   useEffect(() => {
     if (!currentId) return;
