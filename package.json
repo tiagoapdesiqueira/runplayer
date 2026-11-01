@@ -24,7 +24,7 @@
     "react-native-image-colors": "^2.4.0",
     "react-native-shared-group-preferences": "^1.1.17",
     "react-native-track-player": "^4.1.1",
-    "react-native-widgetkit": "^1.1.1"
+    "react-native-widgetkit": "^1.0.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
