@@ -10,14 +10,30 @@
       "bundleIdentifier": "com.tiago.runplayer",
       "supportsTablet": false,
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
+        "UIBackgroundModes": ["audio", "location"],
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true,
-        "CFBundleDisplayName": "RunPlayer"
+        "CFBundleDisplayName": "RunPlayer",
+        "NSLocationWhenInUseUsageDescription": "Usado para medir distancia e ritmo durante seus treinos.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Usado para medir distancia e ritmo mesmo com a tela bloqueada.",
+        "NSLocationAlwaysUsageDescription": "Usado para medir distancia e ritmo mesmo com a tela bloqueada.",
+        "NSMotionUsageDescription": "Usado para detectar quando voce para de correr e pausar a musica."
       }
     },
     "plugins": [
-      "expo-file-system"
+      "expo-file-system",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Usado para medir distancia e ritmo durante seus treinos."
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Usado para detectar quando voce para de correr e pausar a musica."
+        }
+      ]
     ]
   }
 }

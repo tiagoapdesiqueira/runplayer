@@ -40,6 +40,13 @@ import {
   savePlaylists,
 } from './playlists';
 import { fadeInForTrack, resetVolumeState, setTargetVolume } from './volume';
+import { startAutoPause, stopAutoPause } from './autoPause';
+import {
+  announceWorkoutEnd,
+  startWorkout,
+  stopWorkout,
+  WorkoutStats,
+} from './workout';
 
 const DOC_DIR = FileSystem.documentDirectory ?? '';
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -131,6 +138,19 @@ function fmt(sec: number): string {
   if (!isFinite(sec) || sec < 0) sec = 0;
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function fmtKm(m: number): string {
+  const km = m / 1000;
+  if (km < 10) return km.toFixed(2).replace('.', ',');
+  return km.toFixed(1).replace('.', ',');
+}
+
+function fmtPace(secPerKm: number): string {
+  if (!isFinite(secPerKm) || secPerKm <= 0) return '--:--';
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.floor(secPerKm % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
@@ -585,10 +605,15 @@ export default function App() {
   const [viewingPlaylistId, setViewingPlaylistId] = useState<string | null>(null);
   const [addTarget, setAddTarget] = useState<Enriched | null>(null);
   const [context, setContext] = useState<Context>({ kind: 'library' });
+  const [workoutActive, setWorkoutActive] = useState(false);
+  const [workoutStats, setWorkoutStats] = useState<WorkoutStats | null>(null);
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
   const filesByIdRef = useRef<Map<string, Enriched>>(new Map());
+  const autoPausedRef = useRef(false);
+  const playingRef = useRef(false);
+  const workoutActiveRef = useRef(false);
 
   const progress = useProgress(500);
 
@@ -701,6 +726,29 @@ export default function App() {
     saveResume({ trackId: currentId, position: pos }).catch(() => {});
   }, [currentId, progress.position]);
 
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
+
+  useEffect(() => {
+    workoutActiveRef.current = workoutActive;
+  }, [workoutActive]);
+
+  const handleMotionChange = useCallback((moving: boolean) => {
+    if (!workoutActiveRef.current) return;
+    if (!moving) {
+      if (playingRef.current) {
+        TrackPlayer.pause().catch(() => {});
+        autoPausedRef.current = true;
+      }
+    } else {
+      if (autoPausedRef.current && !playingRef.current) {
+        TrackPlayer.play().catch(() => {});
+        autoPausedRef.current = false;
+      }
+    }
+  }, []);
+
   useTrackPlayerEvents(
     [Event.PlaybackState, Event.PlaybackActiveTrackChanged],
     async (ev) => {
@@ -748,12 +796,46 @@ export default function App() {
   };
 
   const togglePlay = async () => {
+    autoPausedRef.current = false;
     if (!currentId && files.length > 0) {
       await playFromContext({ kind: 'library' }, files[0].id);
       return;
     }
     if (playing) await TrackPlayer.pause();
     else await TrackPlayer.play();
+  };
+
+  const handleStartWorkout = async () => {
+    hapMedium();
+    const okGps = await startWorkout(setWorkoutStats);
+    if (!okGps) {
+      Alert.alert(
+        'Localizacao negada',
+        'Para medir distancia e ritmo o app precisa de acesso a localizacao.'
+      );
+      return;
+    }
+    await startAutoPause(handleMotionChange);
+    setWorkoutActive(true);
+  };
+
+  const handleStopWorkout = async () => {
+    Alert.alert('Encerrar treino?', undefined, [
+      { text: 'Continuar', style: 'cancel' },
+      {
+        text: 'Encerrar',
+        style: 'destructive',
+        onPress: () => {
+          hapMedium();
+          announceWorkoutEnd();
+          stopWorkout(setWorkoutStats);
+          stopAutoPause(handleMotionChange);
+          setWorkoutStats(null);
+          setWorkoutActive(false);
+          autoPausedRef.current = false;
+        },
+      },
+    ]);
   };
 
   const next = async () => {
@@ -1058,6 +1140,27 @@ export default function App() {
               </Pressable>
             </View>
 
+            {workoutActive && workoutStats ? (
+              <Pressable style={styles.workoutChip} onPress={handleStopWorkout}>
+                <View style={styles.workoutDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.workoutKm}>
+                    {fmtKm(workoutStats.distanceM)} km
+                  </Text>
+                  <Text style={styles.workoutMeta}>
+                    {fmtPace(workoutStats.paceSecPerKm)} /km ·{' '}
+                    {fmt(workoutStats.elapsedS)}
+                  </Text>
+                </View>
+                <Text style={styles.workoutStop}>Parar</Text>
+              </Pressable>
+            ) : (
+              <Pressable style={styles.workoutStart} onPress={handleStartWorkout}>
+                <Text style={styles.workoutStartIcon}>▶</Text>
+                <Text style={styles.workoutStartText}>Iniciar treino</Text>
+              </Pressable>
+            )}
+
             <TabSwitcher tab={tab} onChange={setTab} />
 
             {tab === 'songs' ? (
@@ -1242,6 +1345,55 @@ const styles = StyleSheet.create({
   },
   libReloadIcon: { color: theme.text, fontSize: 20 },
 
+  workoutStart: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    backgroundColor: theme.accent,
+    paddingVertical: spacing.md,
+    borderRadius: radius.full,
+  },
+  workoutStartIcon: {
+    color: theme.accentDark,
+    fontSize: 14,
+    fontWeight: '900',
+    marginRight: spacing.sm,
+  },
+  workoutStartText: {
+    color: theme.accentDark,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  workoutChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    backgroundColor: theme.surface,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: theme.accent,
+  },
+  workoutDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: theme.accent,
+    marginRight: spacing.md,
+  },
+  workoutKm: { color: theme.text, fontSize: 16, fontWeight: '800' },
+  workoutMeta: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
+  workoutStop: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: spacing.sm,
+  },
   tabBar: {
     flexDirection: 'row',
     marginHorizontal: spacing.lg,
