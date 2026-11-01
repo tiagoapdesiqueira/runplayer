@@ -2,13 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  AppState,
   Dimensions,
   FlatList,
   Image,
   Modal,
   Pressable,
-  RefreshControl,
   SafeAreaView,
   StatusBar,
   StyleSheet,
@@ -614,7 +612,6 @@ export default function App() {
   const [context, setContext] = useState<Context>({ kind: 'library' });
   const [workoutActive, setWorkoutActive] = useState(false);
   const [workoutStats, setWorkoutStats] = useState<WorkoutStats | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -681,26 +678,6 @@ export default function App() {
     }
   }, [enrich]);
 
-  const softReload = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const list = await listMp3s();
-      const existing = filesByIdRef.current;
-      const merged: Enriched[] = list.map((f) => existing.get(f.id) ?? f);
-      filesByIdRef.current = new Map(merged.map((f) => [f.id, f]));
-      setFiles(merged);
-      const pls = await loadPlaylists();
-      setPlaylists(pls);
-      enrich(list.filter((f) => !existing.get(f.id)?.meta));
-      if (!playingRef.current && !currentId) {
-        await TrackPlayer.reset();
-        resetVolumeState();
-        if (merged.length > 0) await TrackPlayer.add(toTracks(merged));
-      }
-    } finally {
-      setRefreshing(false);
-    }
-  }, [currentId, enrich]);
 
   useEffect(() => {
     (async () => {
@@ -760,14 +737,6 @@ export default function App() {
     playingRef.current = playing;
   }, [playing]);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active' && !loading) {
-        softReload().catch(() => {});
-      }
-    });
-    return () => sub.remove();
-  }, [softReload, loading]);
 
   useEffect(() => {
     workoutActiveRef.current = workoutActive;
@@ -1168,6 +1137,16 @@ export default function App() {
                 <Text style={styles.libKicker}>Biblioteca</Text>
                 <Text style={styles.libTitle}>Suas musicas</Text>
               </View>
+              <Pressable
+                hitSlop={10}
+                onPress={() => {
+                  hapLight();
+                  reload();
+                }}
+                style={styles.iconBtn}
+              >
+                <Text style={styles.iconBtnText}>↻</Text>
+              </Pressable>
             </View>
 
             {workoutActive && workoutStats ? (
@@ -1203,13 +1182,6 @@ export default function App() {
                   paddingBottom: 140,
                   paddingTop: spacing.sm,
                 }}
-                refreshControl={
-                  <RefreshControl
-                    refreshing={refreshing}
-                    onRefresh={softReload}
-                    tintColor={theme.accent}
-                  />
-                }
                 renderItem={({ item }) => (
                   <SongRow
                     item={item}
