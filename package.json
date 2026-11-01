@@ -8,7 +8,7 @@
     "prebuild": "expo prebuild --platform ios --clean"
   },
   "dependencies": {
-    "@kingstinct/react-native-healthkit": "^9.0.3",
+    "@kingstinct/react-native-healthkit": "^8.5.0",
     "@react-native-async-storage/async-storage": "1.23.1",
     "expo": "~52.0.0",
     "expo-asset": "~11.0.0",
