@@ -5,8 +5,5 @@
   "colors": {
     "accent": "#ff6a3d",
     "widgetBackground": "#0a0a0d"
-  },
-  "entitlements": {
-    "com.apple.security.application-groups": ["group.com.tiago.runplayer"]
   }
 }

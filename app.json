@@ -9,9 +9,6 @@
     "ios": {
       "bundleIdentifier": "com.tiago.runplayer",
       "supportsTablet": false,
-      "entitlements": {
-        "com.apple.security.application-groups": ["group.com.tiago.runplayer"]
-      },
       "infoPlist": {
         "UIBackgroundModes": ["audio", "location"],
         "UIFileSharingEnabled": true,
