@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>RunPlayer — Prévia visual</title>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="https://cdn.jsdelivr.net/npm/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+  <style>
+    :root {
+      --bg: #0b0b0e;
+      --bg-elev: #141418;
+      --surface: #17171c;
+      --surface-hi: #1f1f26;
+      --surface-overlay: rgba(255,255,255,0.04);
+      --text: #f5f5f7;
+      --text-soft: #c4c4ca;
+      --muted: #8a8a92;
+      --dim: #5a5a62;
+      --accent: #ff7a4d;
+      --accent-soft: rgba(255,122,77,0.14);
+      --accent-dark: #0b0b0d;
+      --divider: rgba(255,255,255,0.07);
+      --divider-strong: rgba(255,255,255,0.12);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Helvetica Neue", Arial, sans-serif;
+      background: #000; color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    body { min-height: 100vh; }
+    .wrap {
+      display: flex; flex-wrap: wrap; gap: 24px;
+      padding: 24px; align-items: flex-start; justify-content: center;
+    }
+    .phone {
+      width: 390px; max-width: 100%;
+      height: 844px; max-height: 90vh;
+      background: var(--bg);
+      border-radius: 44px;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0,0,0,.6), 0 0 0 10px #1a1a1a;
+      position: relative;
+      display: flex; flex-direction: column;
+    }
+    .status-bar {
+      padding: 10px 24px 2px;
+      display: flex; justify-content: space-between;
+      font-size: 14px; font-weight: 600;
+      color: var(--text);
+    }
+    .status-bar .icons { display: flex; gap: 6px; align-items: center; }
+    ion-icon { color: inherit; }
+
+    /* Top row */
+    .top-row {
+      padding: 12px 20px 8px;
+      display: flex; align-items: flex-end; justify-content: space-between;
+    }
+    .kicker {
+      font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase;
+      color: var(--muted); font-weight: 600;
+    }
+    .title { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-top: 2px; line-height: 1.1; }
+    .subtle-icon-btn {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-soft);
+      font-size: 18px;
+    }
+
+    /* Tool row (workout) */
+    .tool-row { padding: 0 20px 12px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--accent-soft);
+      padding: 7px 12px;
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 13px; font-weight: 600;
+    }
+    .workout-card {
+      display: flex; align-items: center;
+      background: var(--surface);
+      padding: 12px;
+      border-radius: 10px;
+      gap: 12px;
+    }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    .workout-stats {
+      flex: 1;
+      display: flex; align-items: center;
+    }
+    .workout-stat {
+      display: flex; align-items: baseline; gap: 3px;
+    }
+    .workout-stat .val {
+      color: var(--text); font-size: 15px; font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .workout-stat .unit {
+      color: var(--muted); font-size: 11px; font-weight: 500;
+    }
+    .workout-stats .divider {
+      width: 1px; height: 10px; background: var(--divider);
+      margin: 0 12px;
+    }
+
+    /* Segmented tabs */
+    .seg-wrap { padding: 0 20px 8px; }
+    .seg {
+      background: var(--surface-overlay);
+      border-radius: 10px;
+      padding: 3px;
+      display: flex;
+      position: relative;
+    }
+    .seg-indicator {
+      position: absolute;
+      top: 3px; bottom: 3px; left: 3px;
+      width: calc(50% - 3px);
+      background: var(--surface-hi);
+      border-radius: 6px;
+      transition: left .2s;
+    }
+    .seg-indicator.right { left: calc(50% + 0px); }
+    .seg-btn {
+      flex: 1;
+      padding: 7px;
+      text-align: center;
+      z-index: 1;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .seg-btn.active { color: var(--text); font-weight: 600; }
+
+    /* List */
+    .list { padding: 4px 20px 140px; overflow-y: auto; flex: 1; }
+    .list::-webkit-scrollbar { display: none; }
+    .row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 7px 4px;
+    }
+    .artwork {
+      width: 46px; height: 46px; border-radius: 6px;
+      background: linear-gradient(135deg, #2d2d33, #1a1a1f);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      color: var(--dim);
+      overflow: hidden;
+    }
+    .artwork img { width: 100%; height: 100%; border-radius: 6px; object-fit: cover; }
+    .row-text { flex: 1; min-width: 0; margin-left: 12px; }
+    .row-title { font-size: 16px; font-weight: 500; letter-spacing: -0.1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row.active .row-title { color: var(--accent); }
+    .row-artist { font-size: 13px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+    .row-menu {
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    /* Playlists */
+    .pl-create-ghost {
+      display: flex; align-items: center; gap: 8px;
+      margin: 0 20px 8px;
+      padding: 10px 8px;
+      color: var(--text);
+      font-size: 15px; font-weight: 500;
+    }
+    .pl-create-ghost ion-icon { color: var(--accent); font-size: 18px; }
+    .pl-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 4px;
+    }
+    .pl-row .artwork {
+      background: var(--surface-overlay);
+    }
+    .pl-row ion-icon.chevron { color: var(--dim); font-size: 16px; margin-right: 4px; }
+
+    /* Mini player */
+    .mini-wrap {
+      position: absolute;
+      left: 12px; right: 12px; bottom: 28px;
+    }
+    .mini-card {
+      display: flex; align-items: center;
+      background: var(--bg-elev);
+      border-radius: 12px;
+      padding: 7px 8px 7px 7px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.4);
+    }
+    .mini-tap { display: flex; align-items: center; flex: 1; min-width: 0; }
+    .mini-tap .artwork { width: 40px; height: 40px; }
+    .mini-text { flex: 1; min-width: 0; margin: 0 8px 0 12px; }
+    .mini-title { font-size: 13px; font-weight: 600; letter-spacing: -0.1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mini-artist { font-size: 12px; color: var(--muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mini-controls { display: flex; align-items: center; }
+    .mini-ctrl-btn {
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text); font-size: 20px;
+    }
+    .mini-progress-bg {
+      position: absolute; left: 12px; right: 12px; bottom: 24px;
+      height: 2px; background: rgba(255,255,255,.06);
+      border-radius: 2px;
+    }
+    .mini-progress-fill {
+      height: 100%; width: 42%; background: var(--accent);
+      border-bottom-left-radius: 2px;
+    }
+
+    /* Now Playing */
+    .np {
+      height: 100%;
+      background: linear-gradient(180deg, #5a2a1d 0%, #2a1510 55%, #000 100%);
+      display: flex; flex-direction: column;
+    }
+    .np-handle-wrap { display: flex; justify-content: center; padding-top: 8px; }
+    .np-handle { width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.3); }
+    .np-header-row {
+      padding: 12px 20px 8px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .np-header-kicker {
+      color: rgba(255,255,255,.75);
+      font-size: 11px; font-weight: 600; letter-spacing: 1.5px;
+    }
+    .np-header-btn {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: rgba(255,255,255,.08);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text); font-size: 22px;
+    }
+    .np-art {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: 0 24px;
+    }
+    .np-art-inner {
+      width: 100%; aspect-ratio: 1; max-width: 320px;
+      border-radius: 16px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #ff8d6b, #c23a1e);
+      box-shadow: 0 14px 30px rgba(0,0,0,.45);
+    }
+    .np-art-inner img { width: 100%; height: 100%; object-fit: cover; }
+    .np-info {
+      padding: 20px 24px 0;
+    }
+    .np-title { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
+    .np-artist { font-size: 16px; color: rgba(255,255,255,.65); margin-top: 3px; }
+    .np-progress { padding: 16px 24px 8px; }
+    .np-progress-bg {
+      position: relative;
+      height: 3px; background: rgba(255,255,255,.15); border-radius: 2px;
+    }
+    .np-progress-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 42%; background: rgba(255,255,255,.9); border-radius: 2px; }
+    .np-progress-dot {
+      position: absolute;
+      left: 42%; top: -3.5px;
+      width: 10px; height: 10px;
+      border-radius: 50%; background: var(--text);
+      margin-left: -5px;
+    }
+    .np-time {
+      display: flex; justify-content: space-between;
+      margin-top: 4px;
+      font-size: 11px;
+      color: rgba(255,255,255,.6);
+      font-variant-numeric: tabular-nums;
+    }
+    .np-controls {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 24px 24px;
+    }
+    .np-side { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--text-soft); font-size: 20px; }
+    .np-ctrl { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; color: var(--text); font-size: 34px; }
+    .np-play {
+      width: 68px; height: 68px; border-radius: 50%;
+      background: var(--text); color: var(--accent-dark);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px;
+      box-shadow: 0 4px 10px rgba(0,0,0,.25);
+    }
+
+    /* Sheet modal */
+    .sheet-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,.5);
+      display: flex; align-items: flex-end;
+    }
+    .sheet {
+      width: 100%;
+      background: var(--bg-elev);
+      border-top-left-radius: 20px; border-top-right-radius: 20px;
+      padding: 8px 20px 24px;
+    }
+    .sheet-handle {
+      align-self: center;
+      width: 36px; height: 4px; border-radius: 2px;
+      background: var(--divider-strong);
+      margin: 0 auto 16px;
+    }
+    .sheet-title { color: var(--text); font-size: 18px; font-weight: 600; text-align: center; letter-spacing: -0.2px; }
+    .sheet-sub { color: var(--muted); font-size: 13px; text-align: center; margin: 2px 0 16px; }
+    .sheet-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 0;
+    }
+    .sheet-item-icon {
+      width: 40px; height: 40px; border-radius: 8px;
+      background: var(--accent-soft);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--accent);
+      font-size: 20px;
+    }
+    .sheet-item-icon-muted {
+      width: 40px; height: 40px; border-radius: 8px;
+      background: var(--surface-hi);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-soft);
+      font-size: 16px;
+    }
+    .sheet-item-text { font-size: 15px; font-weight: 500; }
+    .sheet-item-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+    .caption {
+      color: #999; text-align: center; font-size: 13px; margin-top: 10px;
+    }
+    .header-top {
+      text-align: center;
+      padding: 24px 24px 0;
+      color: #ddd;
+    }
+    .header-top h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+    .header-top p { margin: 0; color: #999; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="header-top">
+    <h1>RunPlayer — Prévia visual (redesign v2)</h1>
+    <p>Mockup estático das 4 telas principais com o novo design.</p>
+  </div>
+
+  <div class="wrap">
+    <!-- Screen 1: Library (songs) -->
+    <div>
+      <div class="phone">
+        <div class="status-bar">
+          <span>09:42</span>
+          <span class="icons">
+            <ion-icon name="cellular" style="font-size:13px"></ion-icon>
+            <ion-icon name="wifi" style="font-size:13px"></ion-icon>
+            <ion-icon name="battery-full" style="font-size:15px"></ion-icon>
+          </span>
+        </div>
+        <div class="top-row">
+          <div>
+            <div class="kicker">Biblioteca</div>
+            <div class="title">Suas músicas</div>
+          </div>
+          <div class="subtle-icon-btn">
+            <ion-icon name="refresh"></ion-icon>
+          </div>
+        </div>
+        <div class="tool-row">
+          <div class="pill">
+            <ion-icon name="walk" style="font-size:16px"></ion-icon>
+            <span>Iniciar treino</span>
+          </div>
+        </div>
+        <div class="seg-wrap">
+          <div class="seg">
+            <div class="seg-indicator"></div>
+            <div class="seg-btn active">Músicas</div>
+            <div class="seg-btn">Playlists</div>
+          </div>
+        </div>
+        <div class="list">
+          <div class="row active">
+            <div class="artwork"><img src="https://picsum.photos/seed/song1/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">No Cigar</div>
+              <div class="row-artist">Millencolin</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song2/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">Mr. Brightside</div>
+              <div class="row-artist">The Killers</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song3/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">Smells Like Teen Spirit</div>
+              <div class="row-artist">Nirvana</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song4/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">Everlong</div>
+              <div class="row-artist">Foo Fighters</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song5/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">Basket Case</div>
+              <div class="row-artist">Green Day</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song6/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">All The Small Things</div>
+              <div class="row-artist">blink-182</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song7/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">In Too Deep</div>
+              <div class="row-artist">Sum 41</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+        </div>
+        <div class="mini-progress-bg"><div class="mini-progress-fill"></div></div>
+        <div class="mini-wrap">
+          <div class="mini-card">
+            <div class="mini-tap">
+              <div class="artwork" style="width:40px;height:40px">
+                <img src="https://picsum.photos/seed/song1/100" alt=""/>
+              </div>
+              <div class="mini-text">
+                <div class="mini-title">No Cigar</div>
+                <div class="mini-artist">Millencolin</div>
+              </div>
+            </div>
+            <div class="mini-controls">
+              <div class="mini-ctrl-btn"><ion-icon name="play-skip-back"></ion-icon></div>
+              <div class="mini-ctrl-btn"><ion-icon name="pause"></ion-icon></div>
+              <div class="mini-ctrl-btn"><ion-icon name="play-skip-forward"></ion-icon></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">1. Biblioteca</p>
+    </div>
+
+    <!-- Screen 2: Playlists -->
+    <div>
+      <div class="phone">
+        <div class="status-bar">
+          <span>09:42</span>
+          <span class="icons">
+            <ion-icon name="cellular" style="font-size:13px"></ion-icon>
+            <ion-icon name="wifi" style="font-size:13px"></ion-icon>
+            <ion-icon name="battery-full" style="font-size:15px"></ion-icon>
+          </span>
+        </div>
+        <div class="top-row">
+          <div>
+            <div class="kicker">Biblioteca</div>
+            <div class="title">Suas músicas</div>
+          </div>
+          <div class="subtle-icon-btn">
+            <ion-icon name="refresh"></ion-icon>
+          </div>
+        </div>
+        <div class="tool-row">
+          <div class="workout-card">
+            <div class="live-dot"></div>
+            <div class="workout-stats">
+              <div class="workout-stat">
+                <span class="val">1,23</span>
+                <span class="unit">km</span>
+              </div>
+              <div class="divider"></div>
+              <div class="workout-stat">
+                <span class="val">5:34</span>
+                <span class="unit">/km</span>
+              </div>
+              <div class="divider"></div>
+              <div class="workout-stat">
+                <span class="val">162</span>
+                <span class="unit">bpm</span>
+              </div>
+            </div>
+            <ion-icon name="stop" style="font-size:14px; color: var(--accent)"></ion-icon>
+          </div>
+        </div>
+        <div class="seg-wrap">
+          <div class="seg">
+            <div class="seg-indicator right"></div>
+            <div class="seg-btn">Músicas</div>
+            <div class="seg-btn active">Playlists</div>
+          </div>
+        </div>
+        <div class="pl-create-ghost">
+          <ion-icon name="add"></ion-icon>
+          <span>Criar nova playlist</span>
+        </div>
+        <div class="list" style="padding-top:0">
+          <div class="pl-row">
+            <div class="artwork">
+              <ion-icon name="musical-notes" style="font-size:20px; color: var(--accent)"></ion-icon>
+            </div>
+            <div class="row-text">
+              <div class="row-title">Corrida intensa</div>
+              <div class="row-artist">14 músicas</div>
+            </div>
+            <ion-icon class="chevron" name="chevron-forward"></ion-icon>
+          </div>
+          <div class="pl-row">
+            <div class="artwork">
+              <ion-icon name="musical-notes" style="font-size:20px; color: var(--accent)"></ion-icon>
+            </div>
+            <div class="row-text">
+              <div class="row-title">Aquecimento</div>
+              <div class="row-artist">6 músicas</div>
+            </div>
+            <ion-icon class="chevron" name="chevron-forward"></ion-icon>
+          </div>
+          <div class="pl-row">
+            <div class="artwork">
+              <ion-icon name="musical-notes" style="font-size:20px; color: var(--accent)"></ion-icon>
+            </div>
+            <div class="row-text">
+              <div class="row-title">Desaquecimento</div>
+              <div class="row-artist">4 músicas</div>
+            </div>
+            <ion-icon class="chevron" name="chevron-forward"></ion-icon>
+          </div>
+        </div>
+        <div class="mini-progress-bg"><div class="mini-progress-fill"></div></div>
+        <div class="mini-wrap">
+          <div class="mini-card">
+            <div class="mini-tap">
+              <div class="artwork" style="width:40px;height:40px">
+                <img src="https://picsum.photos/seed/song1/100" alt=""/>
+              </div>
+              <div class="mini-text">
+                <div class="mini-title">No Cigar</div>
+                <div class="mini-artist">Millencolin</div>
+              </div>
+            </div>
+            <div class="mini-controls">
+              <div class="mini-ctrl-btn"><ion-icon name="play-skip-back"></ion-icon></div>
+              <div class="mini-ctrl-btn"><ion-icon name="pause"></ion-icon></div>
+              <div class="mini-ctrl-btn"><ion-icon name="play-skip-forward"></ion-icon></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">2. Playlists (com treino rolando)</p>
+    </div>
+
+    <!-- Screen 3: Now Playing -->
+    <div>
+      <div class="phone">
+        <div class="np">
+          <div class="status-bar">
+            <span>09:42</span>
+            <span class="icons">
+              <ion-icon name="cellular" style="font-size:13px"></ion-icon>
+              <ion-icon name="wifi" style="font-size:13px"></ion-icon>
+              <ion-icon name="battery-full" style="font-size:15px"></ion-icon>
+            </span>
+          </div>
+          <div class="np-handle-wrap">
+            <div class="np-handle"></div>
+          </div>
+          <div class="np-header-row">
+            <div class="np-header-kicker">TOCANDO AGORA</div>
+            <div class="np-header-btn">
+              <ion-icon name="chevron-down"></ion-icon>
+            </div>
+          </div>
+          <div class="np-art">
+            <div class="np-art-inner">
+              <img src="https://picsum.photos/seed/song1/600" alt=""/>
+            </div>
+          </div>
+          <div class="np-info">
+            <div class="np-title">No Cigar</div>
+            <div class="np-artist">Millencolin</div>
+          </div>
+          <div class="np-progress">
+            <div class="np-progress-bg">
+              <div class="np-progress-fill"></div>
+              <div class="np-progress-dot"></div>
+            </div>
+            <div class="np-time">
+              <span>1:23</span><span>-1:53</span>
+            </div>
+          </div>
+          <div class="np-controls">
+            <div class="np-side" style="color: var(--accent)">
+              <ion-icon name="shuffle"></ion-icon>
+            </div>
+            <div class="np-ctrl">
+              <ion-icon name="play-skip-back"></ion-icon>
+            </div>
+            <div class="np-play">
+              <ion-icon name="pause"></ion-icon>
+            </div>
+            <div class="np-ctrl">
+              <ion-icon name="play-skip-forward"></ion-icon>
+            </div>
+            <div class="np-side">
+              <ion-icon name="repeat"></ion-icon>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">3. Tocando agora</p>
+    </div>
+
+    <!-- Screen 4: Modal "add to playlist" -->
+    <div>
+      <div class="phone">
+        <div class="status-bar">
+          <span>09:42</span>
+          <span class="icons">
+            <ion-icon name="cellular" style="font-size:13px"></ion-icon>
+            <ion-icon name="wifi" style="font-size:13px"></ion-icon>
+            <ion-icon name="battery-full" style="font-size:15px"></ion-icon>
+          </span>
+        </div>
+        <div class="top-row">
+          <div>
+            <div class="kicker">Biblioteca</div>
+            <div class="title">Suas músicas</div>
+          </div>
+          <div class="subtle-icon-btn">
+            <ion-icon name="refresh"></ion-icon>
+          </div>
+        </div>
+        <div class="tool-row">
+          <div class="pill">
+            <ion-icon name="walk" style="font-size:16px"></ion-icon>
+            <span>Iniciar treino</span>
+          </div>
+        </div>
+        <div class="seg-wrap">
+          <div class="seg">
+            <div class="seg-indicator"></div>
+            <div class="seg-btn active">Músicas</div>
+            <div class="seg-btn">Playlists</div>
+          </div>
+        </div>
+        <div class="list">
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song1/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">No Cigar</div>
+              <div class="row-artist">Millencolin</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song2/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">Mr. Brightside</div>
+              <div class="row-artist">The Killers</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+          <div class="row">
+            <div class="artwork"><img src="https://picsum.photos/seed/song3/100" alt=""/></div>
+            <div class="row-text">
+              <div class="row-title">Smells Like Teen Spirit</div>
+              <div class="row-artist">Nirvana</div>
+            </div>
+            <div class="row-menu"><ion-icon name="ellipsis-horizontal"></ion-icon></div>
+          </div>
+        </div>
+        <div class="sheet-backdrop">
+          <div class="sheet">
+            <div class="sheet-handle"></div>
+            <div class="sheet-title">Adicionar à playlist</div>
+            <div class="sheet-sub">Mr. Brightside</div>
+            <div class="sheet-item">
+              <div class="sheet-item-icon">
+                <ion-icon name="add"></ion-icon>
+              </div>
+              <div class="sheet-item-text">Criar nova playlist</div>
+            </div>
+            <div class="sheet-item">
+              <div class="sheet-item-icon-muted">
+                <ion-icon name="musical-notes"></ion-icon>
+              </div>
+              <div style="flex:1">
+                <div class="sheet-item-text">Corrida intensa</div>
+                <div class="sheet-item-sub">14 músicas</div>
+              </div>
+            </div>
+            <div class="sheet-item">
+              <div class="sheet-item-icon-muted">
+                <ion-icon name="musical-notes"></ion-icon>
+              </div>
+              <div style="flex:1">
+                <div class="sheet-item-text">Aquecimento</div>
+                <div class="sheet-item-sub">6 músicas</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">4. Bottom sheet "Adicionar à playlist"</p>
+    </div>
+  </div>
+</body>
+</html>

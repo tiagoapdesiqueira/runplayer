@@ -32,7 +32,16 @@ import TrackPlayer, {
 
 import { readId3, Metadata } from './metadata';
 import { loadResume, saveResume } from './storage';
-import { defaultPalette, Palette, radius, spacing, theme } from './theme';
+import {
+  defaultPalette,
+  ff,
+  Palette,
+  radius,
+  spacing,
+  theme,
+  font,
+  weight,
+} from './theme';
 import {
   addTrack,
   loadPlaylists,
@@ -53,8 +62,8 @@ import {
 import { requestHeartRateAuth } from './healthkit';
 
 const DOC_DIR = FileSystem.documentDirectory ?? '';
-const { width: SCREEN_W } = Dimensions.get('window');
-const ARTWORK_SIZE = Math.min(SCREEN_W - spacing.xl * 2, 360);
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const ARTWORK_SIZE = Math.min(SCREEN_W - spacing.xxl * 2, SCREEN_H * 0.42);
 
 type Mp3 = { id: string; name: string; uri: string };
 type Enriched = Mp3 & { meta?: Metadata };
@@ -190,14 +199,17 @@ async function extractPalette(uri?: string): Promise<Palette> {
 const ArtworkThumb = React.memo(function ArtworkThumb({
   uri,
   size,
+  rounded,
 }: {
   uri?: string;
   size: number;
+  rounded?: number;
 }) {
+  const r = rounded ?? (size >= 120 ? radius.lg : radius.sm);
   const style = {
     width: size,
     height: size,
-    borderRadius: size >= 100 ? radius.lg : radius.sm,
+    borderRadius: r,
     backgroundColor: theme.surface,
   };
   if (!uri) {
@@ -214,7 +226,7 @@ const ArtworkThumb = React.memo(function ArtworkThumb({
   return <Image source={{ uri }} style={style} />;
 });
 
-function TabSwitcher({
+function SegmentedTabs({
   tab,
   onChange,
 }: {
@@ -222,31 +234,39 @@ function TabSwitcher({
   onChange: (t: 'songs' | 'playlists') => void;
 }) {
   return (
-    <View style={styles.tabBar}>
-      <Pressable
-        onPress={() => {
-          hapSelect();
-          onChange('songs');
-        }}
-        style={[styles.tabBtn, tab === 'songs' && styles.tabBtnActive]}
-      >
-        <Text style={[styles.tabText, tab === 'songs' && styles.tabTextActive]}>
-          Musicas
-        </Text>
-      </Pressable>
-      <Pressable
-        onPress={() => {
-          hapSelect();
-          onChange('playlists');
-        }}
-        style={[styles.tabBtn, tab === 'playlists' && styles.tabBtnActive]}
-      >
-        <Text
-          style={[styles.tabText, tab === 'playlists' && styles.tabTextActive]}
+    <View style={styles.segWrap}>
+      <View style={styles.segBar}>
+        <View
+          style={[
+            styles.segIndicator,
+            tab === 'playlists' && { left: '50%' },
+          ]}
+        />
+        <Pressable
+          onPress={() => {
+            hapSelect();
+            onChange('songs');
+          }}
+          style={styles.segBtn}
         >
-          Playlists
-        </Text>
-      </Pressable>
+          <Text style={[styles.segText, tab === 'songs' && styles.segTextActive]}>
+            Musicas
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            hapSelect();
+            onChange('playlists');
+          }}
+          style={styles.segBtn}
+        >
+          <Text
+            style={[styles.segText, tab === 'playlists' && styles.segTextActive]}
+          >
+            Playlists
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -256,11 +276,13 @@ function SongRow({
   active,
   onPress,
   onLongPress,
+  onMenu,
 }: {
   item: Enriched;
   active: boolean;
   onPress: () => void;
   onLongPress?: () => void;
+  onMenu?: () => void;
 }) {
   const title = item.meta?.title || item.name;
   const artist = item.meta?.artist;
@@ -268,14 +290,10 @@ function SongRow({
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
-      delayLongPress={300}
-      style={({ pressed }) => [
-        styles.row,
-        active && styles.rowActive,
-        pressed && { opacity: 0.6 },
-      ]}
+      delayLongPress={320}
+      style={({ pressed }) => [styles.row, pressed && { opacity: 0.55 }]}
     >
-      <ArtworkThumb uri={item.meta?.artworkUri} size={52} />
+      <ArtworkThumb uri={item.meta?.artworkUri} size={46} />
       <View style={styles.rowText}>
         <Text
           numberOfLines={1}
@@ -289,6 +307,22 @@ function SongRow({
           </Text>
         ) : null}
       </View>
+      {onMenu ? (
+        <Pressable
+          hitSlop={10}
+          onPress={(e) => {
+            e.stopPropagation();
+            onMenu();
+          }}
+          style={styles.rowMenu}
+        >
+          <Ionicons
+            name="ellipsis-horizontal"
+            size={18}
+            color={theme.textMuted}
+          />
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }
@@ -306,14 +340,11 @@ function PlaylistRow({
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
-      delayLongPress={300}
-      style={({ pressed }) => [
-        styles.plRow,
-        pressed && { opacity: 0.6 },
-      ]}
+      delayLongPress={320}
+      style={({ pressed }) => [styles.plRow, pressed && { opacity: 0.55 }]}
     >
       <View style={styles.plIcon}>
-        <Ionicons name="musical-notes" size={24} color={theme.accent} />
+        <Ionicons name="musical-notes" size={20} color={theme.accent} />
       </View>
       <View style={styles.rowText}>
         <Text numberOfLines={1} style={styles.rowTitle}>
@@ -326,9 +357,9 @@ function PlaylistRow({
       </View>
       <Ionicons
         name="chevron-forward"
-        size={22}
+        size={16}
         color={theme.textDim}
-        style={{ marginRight: spacing.sm }}
+        style={{ marginRight: spacing.xs }}
       />
     </Pressable>
   );
@@ -339,12 +370,16 @@ function MiniPlayer({
   playing,
   progress,
   onToggle,
+  onNext,
+  onPrev,
   onOpen,
 }: {
   current?: Enriched;
   playing: boolean;
   progress: number;
   onToggle: () => void;
+  onNext: () => void;
+  onPrev: () => void;
   onOpen: () => void;
 }) {
   if (!current) return null;
@@ -352,41 +387,65 @@ function MiniPlayer({
   const artist = current.meta?.artist;
   return (
     <View style={styles.miniWrap}>
+      <View style={styles.miniCard}>
+        <Pressable style={styles.miniTap} onPress={onOpen}>
+          <ArtworkThumb uri={current.meta?.artworkUri} size={40} />
+          <View style={styles.miniText}>
+            <Text numberOfLines={1} style={styles.miniTitle}>
+              {title}
+            </Text>
+            {artist ? (
+              <Text numberOfLines={1} style={styles.miniArtist}>
+                {artist}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+        <View style={styles.miniControls}>
+          <Pressable
+            hitSlop={10}
+            onPress={() => {
+              hapLight();
+              onPrev();
+            }}
+            style={styles.miniCtrlBtn}
+          >
+            <Ionicons name="play-skip-back" size={20} color={theme.text} />
+          </Pressable>
+          <Pressable
+            hitSlop={10}
+            onPress={() => {
+              hapLight();
+              onToggle();
+            }}
+            style={styles.miniCtrlBtn}
+          >
+            <Ionicons
+              name={playing ? 'pause' : 'play'}
+              size={22}
+              color={theme.text}
+            />
+          </Pressable>
+          <Pressable
+            hitSlop={10}
+            onPress={() => {
+              hapLight();
+              onNext();
+            }}
+            style={styles.miniCtrlBtn}
+          >
+            <Ionicons name="play-skip-forward" size={20} color={theme.text} />
+          </Pressable>
+        </View>
+      </View>
       <View style={styles.miniProgressBg}>
         <View style={[styles.miniProgressFill, { width: `${progress * 100}%` }]} />
       </View>
-      <Pressable style={styles.miniRow} onPress={onOpen}>
-        <ArtworkThumb uri={current.meta?.artworkUri} size={44} />
-        <View style={styles.miniText}>
-          <Text numberOfLines={1} style={styles.miniTitle}>
-            {title}
-          </Text>
-          {artist ? (
-            <Text numberOfLines={1} style={styles.miniArtist}>
-              {artist}
-            </Text>
-          ) : null}
-        </View>
-        <Pressable
-          hitSlop={12}
-          style={styles.miniBtn}
-          onPress={() => {
-            hapLight();
-            onToggle();
-          }}
-        >
-          <Ionicons
-            name={playing ? 'pause' : 'play'}
-            size={18}
-            color={theme.accentDark}
-          />
-        </Pressable>
-      </Pressable>
     </View>
   );
 }
 
-function AddToPlaylistModal({
+function AddToPlaylistSheet({
   visible,
   track,
   playlists,
@@ -405,51 +464,52 @@ function AddToPlaylistModal({
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable style={styles.modalCard} onPress={() => {}}>
-          <Text style={styles.modalTitle}>Adicionar a playlist</Text>
-          <Text numberOfLines={1} style={styles.modalSub}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>Adicionar a playlist</Text>
+          <Text numberOfLines={1} style={styles.sheetSub}>
             {track?.meta?.title || track?.name || ''}
           </Text>
 
-          <View style={styles.modalList}>
+          <View style={styles.sheetList}>
             <Pressable
-              style={styles.modalItem}
+              style={styles.sheetItem}
               onPress={() => {
                 hapLight();
                 onCreateAndAdd();
               }}
             >
-              <View style={styles.modalItemIcon}>
-                <Ionicons name="add" size={22} color={theme.accent} />
+              <View style={styles.sheetItemIcon}>
+                <Ionicons name="add" size={20} color={theme.accent} />
               </View>
-              <Text style={styles.modalItemText}>Criar nova playlist</Text>
+              <Text style={styles.sheetItemText}>Criar nova playlist</Text>
             </Pressable>
 
             {playlists.map((pl) => (
               <Pressable
                 key={pl.id}
-                style={styles.modalItem}
+                style={styles.sheetItem}
                 onPress={() => {
                   hapLight();
                   onAdd(pl.id);
                 }}
               >
-                <View style={styles.modalItemIcon}>
+                <View style={styles.sheetItemIconMuted}>
                   <Ionicons
                     name="musical-notes"
-                    size={18}
-                    color={theme.accent}
+                    size={16}
+                    color={theme.textSoft}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={styles.modalItemText}>
+                  <Text numberOfLines={1} style={styles.sheetItemText}>
                     {pl.name}
                   </Text>
-                  <Text style={styles.modalItemSub}>
+                  <Text style={styles.sheetItemSub}>
                     {pl.trackIds.length}{' '}
                     {pl.trackIds.length === 1 ? 'musica' : 'musicas'}
                   </Text>
@@ -457,10 +517,6 @@ function AddToPlaylistModal({
               </Pressable>
             ))}
           </View>
-
-          <Pressable style={styles.modalCancel} onPress={onClose}>
-            <Text style={styles.modalCancelText}>Cancelar</Text>
-          </Pressable>
         </Pressable>
       </Pressable>
     </Modal>
@@ -475,10 +531,13 @@ function NowPlaying({
   playing,
   position,
   duration,
+  shuffleOn,
+  repeatMode,
   onToggle,
   onNext,
   onPrev,
   onShuffle,
+  onRepeat,
   onSeek,
 }: {
   visible: boolean;
@@ -488,14 +547,17 @@ function NowPlaying({
   playing: boolean;
   position: number;
   duration: number;
+  shuffleOn: boolean;
+  repeatMode: RepeatMode;
   onToggle: () => void;
   onNext: () => void;
   onPrev: () => void;
   onShuffle: () => void;
+  onRepeat: () => void;
   onSeek: (pos: number) => void;
 }) {
   const pct = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
-  const barW = SCREEN_W - spacing.xl * 2;
+  const barW = SCREEN_W - spacing.xxl * 2;
 
   const handleSeekBar = (locationX: number) => {
     if (duration <= 0) return;
@@ -504,6 +566,10 @@ function NowPlaying({
     hapSelect();
     onSeek(next);
   };
+
+  const repeatIcon =
+    repeatMode === RepeatMode.Track ? 'repeat' : 'repeat';
+  const repeatActive = repeatMode !== RepeatMode.Off;
 
   return (
     <Modal
@@ -516,40 +582,60 @@ function NowPlaying({
       <StatusBar barStyle="light-content" />
       <LinearGradient
         colors={[palette.dominant, '#000000']}
-        locations={[0, 0.9]}
+        locations={[0, 0.95]}
         style={styles.npContainer}
       >
         <SafeAreaView style={{ flex: 1 }}>
-          <View style={styles.npHeader}>
+          <View style={styles.npHandleWrap}>
             <Pressable
               hitSlop={16}
               onPress={() => {
                 hapLight();
                 onClose();
               }}
+              style={styles.npHandle}
+            />
+          </View>
+
+          <View style={styles.npHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.npHeaderKicker}>TOCANDO AGORA</Text>
+            </View>
+            <Pressable
+              hitSlop={10}
+              onPress={() => {
+                hapLight();
+                onClose();
+              }}
               style={styles.npHeaderBtn}
             >
-              <Ionicons name="chevron-down" size={28} color={theme.text} />
+              <Ionicons
+                name="chevron-down"
+                size={22}
+                color={theme.text}
+              />
             </Pressable>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={styles.npHeaderLabel}>TOCANDO AGORA</Text>
-            </View>
-            <View style={styles.npHeaderBtn} />
           </View>
 
           <View style={styles.npArtWrap}>
             <View style={styles.npArtShadow}>
-              <ArtworkThumb uri={current?.meta?.artworkUri} size={ARTWORK_SIZE} />
+              <ArtworkThumb
+                uri={current?.meta?.artworkUri}
+                size={ARTWORK_SIZE}
+                rounded={radius.lg}
+              />
             </View>
           </View>
 
           <View style={styles.npInfo}>
-            <Text numberOfLines={1} style={styles.npTitle}>
-              {current?.meta?.title || current?.name || ''}
-            </Text>
-            <Text numberOfLines={1} style={styles.npArtist}>
-              {current?.meta?.artist || 'Desconhecido'}
-            </Text>
+            <View style={{ flex: 1, marginRight: spacing.md }}>
+              <Text numberOfLines={1} style={styles.npTitle}>
+                {current?.meta?.title || current?.name || ''}
+              </Text>
+              <Text numberOfLines={1} style={styles.npArtist}>
+                {current?.meta?.artist || 'Desconhecido'}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.npProgressWrap}>
@@ -559,11 +645,17 @@ function NowPlaying({
             >
               <View style={styles.npProgressBg}>
                 <View style={[styles.npProgressFill, { width: `${pct * 100}%` }]} />
+                <View
+                  style={[
+                    styles.npProgressDot,
+                    { left: `${pct * 100}%` },
+                  ]}
+                />
               </View>
             </Pressable>
             <View style={styles.npTimeRow}>
               <Text style={styles.npTime}>{fmt(position)}</Text>
-              <Text style={styles.npTime}>{fmt(duration)}</Text>
+              <Text style={styles.npTime}>-{fmt(Math.max(0, duration - position))}</Text>
             </View>
           </View>
 
@@ -576,7 +668,11 @@ function NowPlaying({
                 onShuffle();
               }}
             >
-              <Ionicons name="shuffle" size={22} color={theme.text} />
+              <Ionicons
+                name="shuffle"
+                size={20}
+                color={shuffleOn ? theme.accent : theme.textSoft}
+              />
             </Pressable>
             <Pressable
               hitSlop={10}
@@ -586,7 +682,7 @@ function NowPlaying({
                 onPrev();
               }}
             >
-              <Ionicons name="play-skip-back" size={32} color={theme.text} />
+              <Ionicons name="play-skip-back" size={34} color={theme.text} />
             </Pressable>
             <Pressable
               hitSlop={10}
@@ -610,9 +706,27 @@ function NowPlaying({
                 onNext();
               }}
             >
-              <Ionicons name="play-skip-forward" size={32} color={theme.text} />
+              <Ionicons name="play-skip-forward" size={34} color={theme.text} />
             </Pressable>
-            <View style={styles.npSideBtn} />
+            <Pressable
+              hitSlop={10}
+              style={styles.npSideBtn}
+              onPress={() => {
+                hapLight();
+                onRepeat();
+              }}
+            >
+              <Ionicons
+                name={repeatIcon as any}
+                size={20}
+                color={repeatActive ? theme.accent : theme.textSoft}
+              />
+              {repeatMode === RepeatMode.Track ? (
+                <View style={styles.npRepeatBadge}>
+                  <Text style={styles.npRepeatBadgeText}>1</Text>
+                </View>
+              ) : null}
+            </Pressable>
           </View>
         </SafeAreaView>
       </LinearGradient>
@@ -636,6 +750,8 @@ export default function App() {
   const [context, setContext] = useState<Context>({ kind: 'library' });
   const [workoutActive, setWorkoutActive] = useState(false);
   const [workoutStats, setWorkoutStats] = useState<WorkoutStats | null>(null);
+  const [shuffleOn, setShuffleOn] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.Queue);
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -694,6 +810,7 @@ export default function App() {
       setCurrentId(null);
       setPlaying(false);
       setContext({ kind: 'library' });
+      setShuffleOn(false);
       enrich(list);
       const pls = await loadPlaylists();
       setPlaylists(pls);
@@ -701,7 +818,6 @@ export default function App() {
       setLoading(false);
     }
   }, [enrich]);
-
 
   useEffect(() => {
     (async () => {
@@ -747,7 +863,6 @@ export default function App() {
     })();
   }, [current?.meta?.artworkUri]);
 
-
   useEffect(() => {
     if (!currentId) return;
     const pos = Math.floor(progress.position);
@@ -760,7 +875,6 @@ export default function App() {
   useEffect(() => {
     playingRef.current = playing;
   }, [playing]);
-
 
   useEffect(() => {
     workoutActiveRef.current = workoutActive;
@@ -823,6 +937,7 @@ export default function App() {
     if (idx < 0) return;
     hapSelect();
     setContext(ctx);
+    setShuffleOn(false);
     await buildQueue(list, idx);
     await TrackPlayer.play();
   };
@@ -835,40 +950,6 @@ export default function App() {
     }
     if (playing) await TrackPlayer.pause();
     else await TrackPlayer.play();
-  };
-
-  const handleStartWorkout = async () => {
-    hapMedium();
-    await requestHeartRateAuth();
-    const okGps = await startWorkout(setWorkoutStats);
-    if (!okGps) {
-      Alert.alert(
-        'Localizacao negada',
-        'Para medir distancia e ritmo o app precisa de acesso a localizacao.'
-      );
-      return;
-    }
-    await startAutoPause(handleMotionChange);
-    setWorkoutActive(true);
-  };
-
-  const handleStopWorkout = async () => {
-    Alert.alert('Encerrar treino?', undefined, [
-      { text: 'Continuar', style: 'cancel' },
-      {
-        text: 'Encerrar',
-        style: 'destructive',
-        onPress: () => {
-          hapMedium();
-          announceWorkoutEnd();
-          stopWorkout(setWorkoutStats);
-          stopAutoPause(handleMotionChange);
-          setWorkoutStats(null);
-          setWorkoutActive(false);
-          autoPausedRef.current = false;
-        },
-      },
-    ]);
   };
 
   const next = async () => {
@@ -889,13 +970,37 @@ export default function App() {
     const list = songsForContext(context);
     if (list.length === 0) return;
     hapMedium();
+    if (shuffleOn) {
+      // disable shuffle: restore original order
+      setShuffleOn(false);
+      const cur = currentId;
+      const idx = cur ? list.findIndex((f) => f.id === cur) : 0;
+      await buildQueue(list, Math.max(0, idx));
+      if (playingRef.current) await TrackPlayer.play();
+      return;
+    }
     const shuffled = [...list];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
+    setShuffleOn(true);
     await buildQueue(shuffled, 0);
     await TrackPlayer.play();
+  };
+
+  const cycleRepeat = async () => {
+    hapLight();
+    const nextMode =
+      repeatMode === RepeatMode.Off
+        ? RepeatMode.Queue
+        : repeatMode === RepeatMode.Queue
+        ? RepeatMode.Track
+        : RepeatMode.Off;
+    try {
+      await TrackPlayer.setRepeatMode(nextMode);
+      setRepeatMode(nextMode);
+    } catch {}
   };
 
   const seek = async (pos: number) => {
@@ -1017,12 +1122,65 @@ export default function App() {
     persistPlaylists(next);
   };
 
+  const openSongMenu = (song: Enriched, inPlaylistId?: string) => {
+    hapLight();
+    const options: any[] = [
+      {
+        text: 'Adicionar a playlist',
+        onPress: () => openAddToPlaylist(song),
+      },
+    ];
+    if (inPlaylistId) {
+      options.push({
+        text: 'Remover da playlist',
+        style: 'destructive',
+        onPress: () => removeFromPlaylist(inPlaylistId, song.id),
+      });
+    }
+    options.push({ text: 'Cancelar', style: 'cancel' });
+    Alert.alert(song.meta?.title || song.name, undefined, options);
+  };
+
+  const handleStartWorkout = async () => {
+    hapMedium();
+    await requestHeartRateAuth();
+    const okGps = await startWorkout(setWorkoutStats);
+    if (!okGps) {
+      Alert.alert(
+        'Localizacao negada',
+        'Para medir distancia e ritmo o app precisa de acesso a localizacao.'
+      );
+      return;
+    }
+    await startAutoPause(handleMotionChange);
+    setWorkoutActive(true);
+  };
+
+  const handleStopWorkout = async () => {
+    Alert.alert('Encerrar treino?', undefined, [
+      { text: 'Continuar', style: 'cancel' },
+      {
+        text: 'Encerrar',
+        style: 'destructive',
+        onPress: () => {
+          hapMedium();
+          announceWorkoutEnd();
+          stopWorkout(setWorkoutStats);
+          stopAutoPause(handleMotionChange);
+          setWorkoutStats(null);
+          setWorkoutActive(false);
+          autoPausedRef.current = false;
+        },
+      },
+    ]);
+  };
+
   if (!iconsLoaded || !ready || loading) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" />
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={theme.accent} />
+          <ActivityIndicator size="small" color={theme.accent} />
         </View>
       </SafeAreaView>
     );
@@ -1035,7 +1193,7 @@ export default function App() {
         <View style={styles.center}>
           <Ionicons
             name="musical-notes-outline"
-            size={72}
+            size={56}
             color={theme.textDim}
             style={{ marginBottom: spacing.lg }}
           />
@@ -1052,6 +1210,12 @@ export default function App() {
               reload();
             }}
           >
+            <Ionicons
+              name="refresh"
+              size={16}
+              color={theme.text}
+              style={{ marginRight: spacing.sm }}
+            />
             <Text style={styles.emptyBtnText}>Recarregar</Text>
           </Pressable>
         </View>
@@ -1068,26 +1232,28 @@ export default function App() {
         .filter((f): f is Enriched => !!f)
     : [];
 
+  const hasCurrent = !!current;
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       <SafeAreaView style={{ flex: 1 }}>
         {viewingPlaylist ? (
           <>
-            <View style={styles.libHeader}>
+            <View style={styles.headerBar}>
               <Pressable
                 hitSlop={10}
                 onPress={() => {
                   hapLight();
                   setViewingPlaylistId(null);
                 }}
-                style={styles.iconBtn}
+                style={styles.headerIconBtn}
               >
                 <Ionicons name="chevron-back" size={22} color={theme.text} />
               </Pressable>
-              <View style={{ flex: 1, marginLeft: spacing.md }}>
-                <Text style={styles.libKicker}>Playlist</Text>
-                <Text numberOfLines={1} style={styles.libTitle}>
+              <View style={styles.headerCenter}>
+                <Text style={styles.headerKicker}>PLAYLIST</Text>
+                <Text numberOfLines={1} style={styles.headerTitle}>
                   {viewingPlaylist.name}
                 </Text>
               </View>
@@ -1102,22 +1268,22 @@ export default function App() {
                     );
                   }
                 }}
-                style={styles.iconBtnAccent}
+                style={styles.headerIconBtnAccent}
               >
-                <Ionicons name="play" size={18} color={theme.accentDark} />
+                <Ionicons name="play" size={14} color={theme.accentDark} />
               </Pressable>
             </View>
             {viewingPlaylistSongs.length === 0 ? (
               <View style={styles.center}>
                 <Ionicons
-            name="musical-notes-outline"
-            size={72}
-            color={theme.textDim}
-            style={{ marginBottom: spacing.lg }}
-          />
+                  name="musical-notes-outline"
+                  size={48}
+                  color={theme.textDim}
+                  style={{ marginBottom: spacing.lg }}
+                />
                 <Text style={styles.emptyTitle}>Playlist vazia</Text>
                 <Text style={styles.emptyHelp}>
-                  Volte na aba Musicas, segure uma musica e adicione a esta
+                  Volte na aba Musicas, segure uma musica{'\n'}e adicione a esta
                   playlist.
                 </Text>
               </View>
@@ -1125,9 +1291,10 @@ export default function App() {
               <FlatList
                 data={viewingPlaylistSongs}
                 keyExtractor={(f) => f.id}
+                showsVerticalScrollIndicator={false}
                 contentContainerStyle={{
                   paddingHorizontal: spacing.lg,
-                  paddingBottom: 140,
+                  paddingBottom: hasCurrent ? 120 : 24,
                   paddingTop: spacing.sm,
                 }}
                 renderItem={({ item }) => (
@@ -1140,36 +1307,19 @@ export default function App() {
                         item.id
                       )
                     }
-                    onLongPress={() => {
-                      hapLight();
-                      Alert.alert(
-                        item.meta?.title || item.name,
-                        undefined,
-                        [
-                          {
-                            text: 'Remover da playlist',
-                            style: 'destructive',
-                            onPress: () =>
-                              removeFromPlaylist(viewingPlaylist.id, item.id),
-                          },
-                          { text: 'Cancelar', style: 'cancel' },
-                        ]
-                      );
-                    }}
+                    onLongPress={() => openSongMenu(item, viewingPlaylist.id)}
+                    onMenu={() => openSongMenu(item, viewingPlaylist.id)}
                   />
-                )}
-                ItemSeparatorComponent={() => (
-                  <View style={{ height: spacing.xs }} />
                 )}
               />
             )}
           </>
         ) : (
           <>
-            <View style={styles.libHeader}>
-              <View>
-                <Text style={styles.libKicker}>Biblioteca</Text>
-                <Text style={styles.libTitle}>Suas musicas</Text>
+            <View style={styles.topRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.topKicker}>Biblioteca</Text>
+                <Text style={styles.topTitle}>Suas musicas</Text>
               </View>
               <Pressable
                 hitSlop={10}
@@ -1177,49 +1327,75 @@ export default function App() {
                   hapLight();
                   reload();
                 }}
-                style={styles.iconBtn}
+                style={styles.subtleIconBtn}
               >
-                <Ionicons name="refresh" size={20} color={theme.text} />
+                <Ionicons name="refresh" size={18} color={theme.textSoft} />
               </Pressable>
             </View>
 
-            {workoutActive && workoutStats ? (
-              <Pressable style={styles.workoutChip} onPress={handleStopWorkout}>
-                <View style={styles.workoutDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.workoutKm}>
-                    {fmtKm(workoutStats.distanceM)} km
-                  </Text>
-                  <Text style={styles.workoutMeta}>
-                    {fmtPace(workoutStats.paceSecPerKm)} /km ·{' '}
-                    {fmt(workoutStats.elapsedS)}
-                    {workoutStats.bpm ? ` · ${workoutStats.bpm} bpm` : ''}
-                  </Text>
-                </View>
-                <Text style={styles.workoutStop}>Parar</Text>
-              </Pressable>
-            ) : (
-              <Pressable style={styles.workoutStart} onPress={handleStartWorkout}>
-                <Ionicons
-                  name="walk"
-                  size={20}
-                  color={theme.accentDark}
-                  style={{ marginRight: spacing.sm }}
-                />
-                <Text style={styles.workoutStartText}>Iniciar treino</Text>
-              </Pressable>
-            )}
+            <View style={styles.toolRow}>
+              {workoutActive && workoutStats ? (
+                <Pressable
+                  style={styles.workoutCard}
+                  onPress={handleStopWorkout}
+                >
+                  <View style={styles.workoutLive} />
+                  <View style={styles.workoutStats}>
+                    <View style={styles.workoutStat}>
+                      <Text style={styles.workoutStatVal}>
+                        {fmtKm(workoutStats.distanceM)}
+                      </Text>
+                      <Text style={styles.workoutStatUnit}>km</Text>
+                    </View>
+                    <View style={styles.workoutDivider} />
+                    <View style={styles.workoutStat}>
+                      <Text style={styles.workoutStatVal}>
+                        {fmtPace(workoutStats.paceSecPerKm)}
+                      </Text>
+                      <Text style={styles.workoutStatUnit}>/km</Text>
+                    </View>
+                    <View style={styles.workoutDivider} />
+                    <View style={styles.workoutStat}>
+                      <Text style={styles.workoutStatVal}>
+                        {workoutStats.bpm ?? '--'}
+                      </Text>
+                      <Text style={styles.workoutStatUnit}>bpm</Text>
+                    </View>
+                  </View>
+                  <Ionicons
+                    name="stop"
+                    size={14}
+                    color={theme.accent}
+                    style={{ marginLeft: spacing.sm }}
+                  />
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.workoutStartPill}
+                  onPress={handleStartWorkout}
+                >
+                  <Ionicons
+                    name="walk"
+                    size={16}
+                    color={theme.accent}
+                    style={{ marginRight: spacing.xs }}
+                  />
+                  <Text style={styles.workoutStartText}>Iniciar treino</Text>
+                </Pressable>
+              )}
+            </View>
 
-            <TabSwitcher tab={tab} onChange={setTab} />
+            <SegmentedTabs tab={tab} onChange={setTab} />
 
             {tab === 'songs' ? (
               <FlatList
                 data={files}
                 keyExtractor={(f) => f.id}
+                showsVerticalScrollIndicator={false}
                 contentContainerStyle={{
                   paddingHorizontal: spacing.lg,
-                  paddingBottom: 140,
-                  paddingTop: spacing.sm,
+                  paddingBottom: hasCurrent ? 120 : 24,
+                  paddingTop: spacing.xs,
                 }}
                 renderItem={({ item }) => (
                   <SongRow
@@ -1228,53 +1404,52 @@ export default function App() {
                     onPress={() =>
                       playFromContext({ kind: 'library' }, item.id)
                     }
-                    onLongPress={() => openAddToPlaylist(item)}
+                    onLongPress={() => openSongMenu(item)}
+                    onMenu={() => openSongMenu(item)}
                   />
-                )}
-                ItemSeparatorComponent={() => (
-                  <View style={{ height: spacing.xs }} />
                 )}
               />
             ) : (
               <>
-                <View style={styles.plActionsRow}>
-                  <Pressable
-                    style={styles.plCreateBtn}
-                    onPress={() => {
-                      hapLight();
-                      createPlaylist();
-                    }}
-                  >
-                    <Ionicons
-                      name="add"
-                      size={22}
-                      color={theme.accent}
-                      style={{ marginRight: spacing.sm }}
-                    />
-                    <Text style={styles.plCreateText}>Nova playlist</Text>
-                  </Pressable>
-                </View>
+                <Pressable
+                  style={styles.plCreateGhost}
+                  onPress={() => {
+                    hapLight();
+                    createPlaylist();
+                  }}
+                >
+                  <Ionicons
+                    name="add"
+                    size={18}
+                    color={theme.accent}
+                    style={{ marginRight: spacing.sm }}
+                  />
+                  <Text style={styles.plCreateGhostText}>
+                    Criar nova playlist
+                  </Text>
+                </Pressable>
                 {playlists.length === 0 ? (
                   <View style={styles.center}>
                     <Ionicons
-            name="musical-notes-outline"
-            size={72}
-            color={theme.textDim}
-            style={{ marginBottom: spacing.lg }}
-          />
+                      name="list-outline"
+                      size={48}
+                      color={theme.textDim}
+                      style={{ marginBottom: spacing.lg }}
+                    />
                     <Text style={styles.emptyTitle}>Sem playlists ainda</Text>
                     <Text style={styles.emptyHelp}>
-                      Toque em "Nova playlist" para comecar, ou segure uma
-                      musica na aba Musicas.
+                      Toque em "Criar nova playlist" ou{'\n'}segure uma musica
+                      na aba Musicas.
                     </Text>
                   </View>
                 ) : (
                   <FlatList
                     data={playlists}
                     keyExtractor={(p) => p.id}
+                    showsVerticalScrollIndicator={false}
                     contentContainerStyle={{
                       paddingHorizontal: spacing.lg,
-                      paddingBottom: 140,
+                      paddingBottom: hasCurrent ? 120 : 24,
                     }}
                     renderItem={({ item }) => (
                       <PlaylistRow
@@ -1285,9 +1460,6 @@ export default function App() {
                         }}
                         onLongPress={() => handlePlaylistLongPress(item)}
                       />
-                    )}
-                    ItemSeparatorComponent={() => (
-                      <View style={{ height: spacing.xs }} />
                     )}
                   />
                 )}
@@ -1304,6 +1476,8 @@ export default function App() {
           progress.duration > 0 ? progress.position / progress.duration : 0
         }
         onToggle={togglePlay}
+        onNext={next}
+        onPrev={prev}
         onOpen={() => {
           hapLight();
           setNowPlayingOpen(true);
@@ -1318,14 +1492,17 @@ export default function App() {
         playing={playing}
         position={progress.position}
         duration={progress.duration}
+        shuffleOn={shuffleOn}
+        repeatMode={repeatMode}
         onToggle={togglePlay}
         onNext={next}
         onPrev={prev}
         onShuffle={shuffle}
+        onRepeat={cycleRepeat}
         onSeek={seek}
       />
 
-      <AddToPlaylistModal
+      <AddToPlaylistSheet
         visible={!!addTarget}
         track={addTarget ?? undefined}
         playlists={playlists}
@@ -1343,365 +1520,543 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.xl,
+    padding: spacing.xxl,
   },
 
-  emptyIcon: {
-    color: theme.textDim,
-    fontSize: 64,
-    marginBottom: spacing.lg,
-  },
+  // Empty state
   emptyTitle: {
     color: theme.text,
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: spacing.md,
+    fontFamily: ff,
+    fontSize: font.title3,
+    fontWeight: weight.semibold,
+    marginBottom: spacing.sm,
+    letterSpacing: -0.3,
   },
   emptyHelp: {
     color: theme.textMuted,
-    fontSize: 16,
+    fontFamily: ff,
+    fontSize: font.body,
     textAlign: 'center',
     lineHeight: 22,
+    fontWeight: weight.regular,
   },
-  emptyHelpBold: { color: theme.text, fontWeight: '700' },
+  emptyHelpBold: {
+    color: theme.text,
+    fontFamily: ff,
+    fontWeight: weight.semibold,
+  },
   emptyBtn: {
-    marginTop: spacing.xl,
-    backgroundColor: theme.accent,
-    paddingHorizontal: spacing.xl,
+    marginTop: spacing.xxl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surfaceHigh,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderRadius: radius.full,
   },
-  emptyBtnText: { color: theme.accentDark, fontSize: 16, fontWeight: '800' },
+  emptyBtnText: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.semibold,
+  },
 
-  libHeader: {
+  // Top header (library view)
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
   },
-  libKicker: {
-    color: theme.textDim,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.5,
+  topKicker: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.tiny,
+    fontWeight: weight.semibold,
+    letterSpacing: 1.4,
     textTransform: 'uppercase',
   },
-  libTitle: {
+  topTitle: {
     color: theme.text,
-    fontSize: 28,
-    fontWeight: '800',
+    fontFamily: ff,
+    fontSize: font.title1,
+    fontWeight: weight.bold,
     marginTop: 2,
+    letterSpacing: -0.5,
+    lineHeight: font.title1 * 1.1,
   },
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.full,
-    backgroundColor: theme.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconBtnAccent: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.full,
-    backgroundColor: theme.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconBtnText: { color: theme.text, fontSize: 20 },
-  iconBtnTextAccent: { color: theme.accentDark, fontSize: 18, fontWeight: '900' },
-
-  workoutStart: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-    backgroundColor: theme.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.full,
-  },
-  workoutStartIcon: {
-    color: theme.accentDark,
-    fontSize: 14,
-    fontWeight: '900',
-    marginRight: spacing.sm,
-  },
-  workoutStartText: {
-    color: theme.accentDark,
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  workoutChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-    backgroundColor: theme.surface,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    borderLeftWidth: 3,
-    borderLeftColor: theme.accent,
-  },
-  workoutDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: theme.accent,
-    marginRight: spacing.md,
-  },
-  workoutKm: { color: theme.text, fontSize: 16, fontWeight: '800' },
-  workoutMeta: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
-  workoutStop: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
-    paddingHorizontal: spacing.sm,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    backgroundColor: theme.surface,
-    borderRadius: radius.full,
-    padding: 4,
-  },
-  tabBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: radius.full,
-  },
-  tabBtnActive: { backgroundColor: theme.accent },
-  tabText: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
-  tabTextActive: { color: theme.accentDark },
-
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
-  },
-  rowActive: { backgroundColor: theme.surface },
-  rowText: { flex: 1, marginLeft: spacing.md },
-  rowTitle: { color: theme.text, fontSize: 16, fontWeight: '600' },
-  rowArtist: { color: theme.textMuted, fontSize: 13, marginTop: 2 },
-  artFallback: { alignItems: 'center', justifyContent: 'center' },
-
-  plRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
-  },
-  plIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.sm,
-    backgroundColor: theme.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  plIconText: { color: theme.accent, fontSize: 24, fontWeight: '800' },
-  plChevron: { color: theme.textDim, fontSize: 28, marginRight: spacing.sm },
-
-  plActionsRow: {
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  plCreateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surface,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-  },
-  plCreateIcon: {
-    color: theme.accent,
-    fontSize: 22,
-    fontWeight: '900',
-    marginRight: spacing.sm,
-  },
-  plCreateText: { color: theme.text, fontSize: 16, fontWeight: '700' },
-
-  miniWrap: {
-    position: 'absolute',
-    left: spacing.md,
-    right: spacing.md,
-    bottom: 24,
-    backgroundColor: theme.bgElevated,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  miniProgressBg: {
-    height: 2,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  miniProgressFill: { height: '100%', backgroundColor: theme.accent },
-  miniRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm,
-  },
-  miniText: { flex: 1, marginLeft: spacing.md, marginRight: spacing.md },
-  miniTitle: { color: theme.text, fontSize: 14, fontWeight: '700' },
-  miniArtist: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
-  miniBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniBtnText: {
-    color: theme.accentDark,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: theme.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalCard: {
-    backgroundColor: theme.bgElevated,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    paddingTop: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
-  },
-  modalTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  modalSub: {
-    color: theme.textMuted,
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 4,
-    marginBottom: spacing.md,
-  },
-  modalList: { maxHeight: 360 },
-  modalItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.divider,
-  },
-  modalItemIcon: {
+  subtleIconBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: theme.surface,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.md,
   },
-  modalItemIconText: { color: theme.accent, fontSize: 18, fontWeight: '800' },
-  modalItemText: { color: theme.text, fontSize: 15, fontWeight: '600' },
-  modalItemSub: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
-  modalCancel: {
-    marginTop: spacing.lg,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    backgroundColor: theme.surface,
-    borderRadius: radius.full,
-  },
-  modalCancelText: { color: theme.text, fontSize: 15, fontWeight: '700' },
 
-  npContainer: { flex: 1 },
-  npHeader: {
+  // Header bar (playlist detail)
+  headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
+    gap: spacing.sm,
   },
-  npHeaderBtn: {
-    width: 40,
-    height: 40,
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    backgroundColor: theme.surfaceOverlay,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  npHeaderIcon: { color: theme.text, fontSize: 28, fontWeight: '600' },
-  npHeaderLabel: {
+  headerIconBtnAccent: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    backgroundColor: theme.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCenter: { flex: 1, marginHorizontal: spacing.xs },
+  headerKicker: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.tiny,
+    fontWeight: weight.semibold,
+    letterSpacing: 1.4,
+  },
+  headerTitle: {
     color: theme.text,
-    fontSize: 11,
-    fontWeight: '700',
+    fontFamily: ff,
+    fontSize: font.title3,
+    fontWeight: weight.semibold,
+    letterSpacing: -0.3,
+    marginTop: 1,
+  },
+
+  // Tool row (workout control)
+  toolRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  workoutStartPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.accentSoft,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+  },
+  workoutStartText: {
+    color: theme.accent,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.semibold,
+    letterSpacing: 0.1,
+  },
+  workoutCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surface,
+    padding: spacing.md,
+    borderRadius: radius.md,
+  },
+  workoutLive: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.accent,
+    marginRight: spacing.md,
+  },
+  workoutStats: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  workoutStat: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 3,
+  },
+  workoutStatVal: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.body,
+    fontWeight: weight.semibold,
+    fontVariant: ['tabular-nums'],
+  },
+  workoutStatUnit: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.tiny,
+    fontWeight: weight.medium,
+  },
+  workoutDivider: {
+    width: 1,
+    height: 10,
+    backgroundColor: theme.divider,
+    marginHorizontal: spacing.md,
+  },
+
+  // Segmented control
+  segWrap: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  segBar: {
+    flexDirection: 'row',
+    backgroundColor: theme.surfaceOverlay,
+    borderRadius: radius.md,
+    padding: 3,
+    position: 'relative',
+  },
+  segIndicator: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    width: '50%',
+    left: 3,
+    backgroundColor: theme.surfaceHigh,
+    borderRadius: radius.sm,
+  },
+  segBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  segText: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.medium,
+  },
+  segTextActive: {
+    color: theme.text,
+    fontWeight: weight.semibold,
+  },
+
+  // Song row
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: spacing.xs,
+  },
+  rowText: { flex: 1, marginLeft: spacing.md },
+  rowTitle: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.callout,
+    fontWeight: weight.semibold,
+    letterSpacing: -0.1,
+  },
+  rowArtist: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.small,
+    marginTop: 2,
+    fontWeight: weight.regular,
+  },
+  rowMenu: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  artFallback: { alignItems: 'center', justifyContent: 'center' },
+
+  // Playlist row
+  plRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: spacing.xs,
+  },
+  plIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.sm,
+    backgroundColor: theme.surfaceOverlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plCreateGhost: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+  },
+  plCreateGhostText: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.body,
+    fontWeight: weight.semibold,
+  },
+
+  // Mini player
+  miniWrap: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    bottom: 28,
+  },
+  miniCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.bgElevated,
+    borderRadius: radius.md,
+    paddingVertical: 7,
+    paddingLeft: 7,
+    paddingRight: spacing.sm,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  miniTap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  miniText: {
+    flex: 1,
+    marginLeft: spacing.md,
+    marginRight: spacing.sm,
+    minWidth: 0,
+  },
+  miniTitle: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.small,
+    fontWeight: weight.semibold,
+    letterSpacing: -0.1,
+  },
+  miniArtist: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.caption,
+    marginTop: 1,
+    fontWeight: weight.regular,
+  },
+  miniControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  miniCtrlBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniProgressBg: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    bottom: -4,
+    height: 2,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2,
+  },
+  miniProgressFill: {
+    height: '100%',
+    backgroundColor: theme.accent,
+    borderBottomLeftRadius: 2,
+  },
+
+  // Sheet (modal)
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: theme.overlay,
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: theme.bgElevated,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.dividerStrong,
+    marginBottom: spacing.lg,
+  },
+  sheetTitle: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.title3,
+    fontWeight: weight.semibold,
+    textAlign: 'center',
+    letterSpacing: -0.2,
+  },
+  sheetSub: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.small,
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: spacing.lg,
+  },
+  sheetList: { maxHeight: 420 },
+  sheetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    gap: spacing.md,
+  },
+  sheetItemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.sm,
+    backgroundColor: theme.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetItemIconMuted: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.sm,
+    backgroundColor: theme.surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetItemText: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.body,
+    fontWeight: weight.semibold,
+  },
+  sheetItemSub: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.caption,
+    marginTop: 1,
+  },
+
+  // Now Playing
+  npContainer: { flex: 1 },
+  npHandleWrap: {
+    alignItems: 'center',
+    paddingTop: spacing.sm,
+  },
+  npHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  npHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  npHeaderKicker: {
+    color: 'rgba(255,255,255,0.75)',
+    fontFamily: ff,
+    fontSize: font.tiny,
+    fontWeight: weight.semibold,
     letterSpacing: 1.5,
-    opacity: 0.8,
+  },
+  npHeaderBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   npArtWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.xxl,
   },
   npArtShadow: {
     shadowColor: '#000',
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.45,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 14 },
     borderRadius: radius.lg,
   },
   npInfo: {
-    paddingHorizontal: spacing.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xxl,
     marginBottom: spacing.lg,
   },
   npTitle: {
     color: theme.text,
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.3,
+    fontFamily: ff,
+    fontSize: font.title2,
+    fontWeight: weight.bold,
+    letterSpacing: -0.4,
+    lineHeight: font.title2 * 1.15,
   },
   npArtist: {
-    color: theme.textMuted,
-    fontSize: 16,
-    marginTop: 4,
-    fontWeight: '500',
+    color: 'rgba(255,255,255,0.65)',
+    fontFamily: ff,
+    fontSize: font.callout,
+    marginTop: 3,
+    fontWeight: weight.regular,
   },
   npProgressWrap: {
-    paddingHorizontal: spacing.xl,
-    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.xxl,
+    marginBottom: spacing.md,
   },
-  npProgressHit: { paddingVertical: spacing.sm },
+  npProgressHit: { paddingVertical: spacing.xs },
   npProgressBg: {
-    height: 4,
+    height: 3,
     backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: 2,
-    overflow: 'hidden',
+    overflow: 'visible',
+    position: 'relative',
   },
-  npProgressFill: { height: '100%', backgroundColor: theme.text },
+  npProgressFill: {
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 2,
+  },
+  npProgressDot: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: theme.text,
+    top: -3.5,
+    marginLeft: -5,
+  },
   npTimeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 2,
+    marginTop: spacing.xs,
   },
-  npTime: { color: theme.textMuted, fontSize: 12 },
+  npTime: {
+    color: 'rgba(255,255,255,0.6)',
+    fontFamily: ff,
+    fontSize: font.caption,
+    fontVariant: ['tabular-nums'],
+    fontWeight: weight.medium,
+  },
   npControls: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xl,
+    paddingHorizontal: spacing.xxl,
+    paddingBottom: spacing.xxl,
   },
   npSideBtn: {
     width: 44,
@@ -1709,21 +2064,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  npSideIcon: { color: theme.text, fontSize: 22, opacity: 0.8 },
   npCtrlBtn: {
     width: 56,
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  npCtrlIcon: { color: theme.text, fontSize: 32 },
   npPlayBtn: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: theme.text,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
-  npPlayIcon: { color: theme.accentDark, fontSize: 26, fontWeight: '900' },
+  npRepeatBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 6,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: theme.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  npRepeatBadgeText: {
+    color: theme.accentDark,
+    fontSize: 8,
+    fontWeight: weight.bold,
+  },
 });
