@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   Image,
@@ -29,18 +30,25 @@ import TrackPlayer, {
 import { readId3, Metadata } from './metadata';
 import { loadResume, saveResume } from './storage';
 import { defaultPalette, Palette, radius, spacing, theme } from './theme';
+import {
+  addTrack,
+  loadPlaylists,
+  newPlaylist,
+  Playlist,
+  removeTrack,
+  renamePlaylist,
+  savePlaylists,
+} from './playlists';
+import { fadeInForTrack, resetVolumeState, setTargetVolume } from './volume';
 
 const DOC_DIR = FileSystem.documentDirectory ?? '';
 const { width: SCREEN_W } = Dimensions.get('window');
 const ARTWORK_SIZE = Math.min(SCREEN_W - spacing.xl * 2, 360);
 
-type Mp3 = {
-  id: string;
-  name: string;
-  uri: string;
-};
-
+type Mp3 = { id: string; name: string; uri: string };
 type Enriched = Mp3 & { meta?: Metadata };
+
+type Context = { kind: 'library' } | { kind: 'playlist'; id: string };
 
 const hapLight = () => {
   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -175,20 +183,61 @@ const ArtworkThumb = React.memo(function ArtworkThumb({
   return <Image source={{ uri }} style={style} />;
 });
 
+function TabSwitcher({
+  tab,
+  onChange,
+}: {
+  tab: 'songs' | 'playlists';
+  onChange: (t: 'songs' | 'playlists') => void;
+}) {
+  return (
+    <View style={styles.tabBar}>
+      <Pressable
+        onPress={() => {
+          hapSelect();
+          onChange('songs');
+        }}
+        style={[styles.tabBtn, tab === 'songs' && styles.tabBtnActive]}
+      >
+        <Text style={[styles.tabText, tab === 'songs' && styles.tabTextActive]}>
+          Musicas
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={() => {
+          hapSelect();
+          onChange('playlists');
+        }}
+        style={[styles.tabBtn, tab === 'playlists' && styles.tabBtnActive]}
+      >
+        <Text
+          style={[styles.tabText, tab === 'playlists' && styles.tabTextActive]}
+        >
+          Playlists
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function SongRow({
   item,
   active,
   onPress,
+  onLongPress,
 }: {
   item: Enriched;
   active: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
 }) {
   const title = item.meta?.title || item.name;
   const artist = item.meta?.artist;
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={300}
       style={({ pressed }) => [
         styles.row,
         active && styles.rowActive,
@@ -209,6 +258,42 @@ function SongRow({
           </Text>
         ) : null}
       </View>
+    </Pressable>
+  );
+}
+
+function PlaylistRow({
+  playlist,
+  onPress,
+  onLongPress,
+}: {
+  playlist: Playlist;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={300}
+      style={({ pressed }) => [
+        styles.plRow,
+        pressed && { opacity: 0.6 },
+      ]}
+    >
+      <View style={styles.plIcon}>
+        <Text style={styles.plIconText}>♪</Text>
+      </View>
+      <View style={styles.rowText}>
+        <Text numberOfLines={1} style={styles.rowTitle}>
+          {playlist.name}
+        </Text>
+        <Text numberOfLines={1} style={styles.rowArtist}>
+          {playlist.trackIds.length}{' '}
+          {playlist.trackIds.length === 1 ? 'musica' : 'musicas'}
+        </Text>
+      </View>
+      <Text style={styles.plChevron}>›</Text>
     </Pressable>
   );
 }
@@ -261,6 +346,83 @@ function MiniPlayer({
   );
 }
 
+function AddToPlaylistModal({
+  visible,
+  track,
+  playlists,
+  onClose,
+  onAdd,
+  onCreateAndAdd,
+}: {
+  visible: boolean;
+  track?: Enriched;
+  playlists: Playlist[];
+  onClose: () => void;
+  onAdd: (playlistId: string) => void;
+  onCreateAndAdd: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={styles.modalCard} onPress={() => {}}>
+          <Text style={styles.modalTitle}>Adicionar a playlist</Text>
+          <Text numberOfLines={1} style={styles.modalSub}>
+            {track?.meta?.title || track?.name || ''}
+          </Text>
+
+          <View style={styles.modalList}>
+            <Pressable
+              style={styles.modalItem}
+              onPress={() => {
+                hapLight();
+                onCreateAndAdd();
+              }}
+            >
+              <View style={styles.modalItemIcon}>
+                <Text style={styles.modalItemIconText}>+</Text>
+              </View>
+              <Text style={styles.modalItemText}>Criar nova playlist</Text>
+            </Pressable>
+
+            {playlists.map((pl) => (
+              <Pressable
+                key={pl.id}
+                style={styles.modalItem}
+                onPress={() => {
+                  hapLight();
+                  onAdd(pl.id);
+                }}
+              >
+                <View style={styles.modalItemIcon}>
+                  <Text style={styles.modalItemIconText}>♪</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={styles.modalItemText}>
+                    {pl.name}
+                  </Text>
+                  <Text style={styles.modalItemSub}>
+                    {pl.trackIds.length}{' '}
+                    {pl.trackIds.length === 1 ? 'musica' : 'musicas'}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+
+          <Pressable style={styles.modalCancel} onPress={onClose}>
+            <Text style={styles.modalCancelText}>Cancelar</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 function NowPlaying({
   visible,
   onClose,
@@ -290,7 +452,6 @@ function NowPlaying({
 }) {
   const pct = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
   const barW = SCREEN_W - spacing.xl * 2;
-  const scrubRef = useRef<View>(null);
 
   const handleSeekBar = (locationX: number) => {
     if (duration <= 0) return;
@@ -349,7 +510,6 @@ function NowPlaying({
 
           <View style={styles.npProgressWrap}>
             <Pressable
-              ref={scrubRef}
               onPress={(e) => handleSeekBar(e.nativeEvent.locationX)}
               style={styles.npProgressHit}
             >
@@ -420,10 +580,22 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [palette, setPalette] = useState<Palette>(defaultPalette);
   const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
+  const [tab, setTab] = useState<'songs' | 'playlists'>('songs');
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [viewingPlaylistId, setViewingPlaylistId] = useState<string | null>(null);
+  const [addTarget, setAddTarget] = useState<Enriched | null>(null);
+  const [context, setContext] = useState<Context>({ kind: 'library' });
+
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
+  const filesByIdRef = useRef<Map<string, Enriched>>(new Map());
 
   const progress = useProgress(500);
+
+  const persistPlaylists = useCallback((next: Playlist[]) => {
+    setPlaylists(next);
+    savePlaylists(next).catch(() => {});
+  }, []);
 
   const enrich = useCallback(async (list: Mp3[]) => {
     for (const file of list) {
@@ -432,8 +604,9 @@ export default function App() {
         setFiles((prev) =>
           prev.map((f) => (f.id === file.id ? { ...f, meta } : f))
         );
-        const track = await TrackPlayer.getQueue();
-        const idx = track.findIndex((t) => t.id === file.id);
+        filesByIdRef.current.set(file.id, { ...file, meta });
+        const queue = await TrackPlayer.getQueue();
+        const idx = queue.findIndex((t) => t.id === file.id);
         if (idx >= 0) {
           await TrackPlayer.updateMetadataForTrack(idx, {
             title: meta.title || file.name,
@@ -445,16 +618,31 @@ export default function App() {
     }
   }, []);
 
+  const buildQueue = useCallback(
+    async (list: Enriched[], startIndex: number) => {
+      await TrackPlayer.reset();
+      resetVolumeState();
+      await TrackPlayer.add(toTracks(list));
+      if (startIndex > 0) await TrackPlayer.skip(startIndex);
+    },
+    []
+  );
+
   const reload = useCallback(async () => {
     setLoading(true);
     try {
       const list = await listMp3s();
+      filesByIdRef.current = new Map(list.map((f) => [f.id, f]));
       setFiles(list);
       await TrackPlayer.reset();
+      resetVolumeState();
       if (list.length > 0) await TrackPlayer.add(toTracks(list));
       setCurrentId(null);
       setPlaying(false);
+      setContext({ kind: 'library' });
       enrich(list);
+      const pls = await loadPlaylists();
+      setPlaylists(pls);
     } finally {
       setLoading(false);
     }
@@ -467,7 +655,10 @@ export default function App() {
       await setupPlayer();
       setReady(true);
       const list = await listMp3s();
+      filesByIdRef.current = new Map(list.map((f) => [f.id, f]));
       setFiles(list);
+      const pls = await loadPlaylists();
+      setPlaylists(pls);
       if (list.length > 0) {
         await TrackPlayer.reset();
         await TrackPlayer.add(toTracks(list));
@@ -520,24 +711,45 @@ export default function App() {
         const idx = await TrackPlayer.getActiveTrackIndex();
         if (idx != null) {
           const t = await TrackPlayer.getTrack(idx);
-          if (t?.id) setCurrentId(String(t.id));
+          if (t?.id) {
+            const id = String(t.id);
+            setCurrentId(id);
+            const file = filesByIdRef.current.get(id);
+            const gain = file?.meta?.gainDb;
+            if (ev.index !== ev.lastIndex && ev.lastIndex != null) {
+              fadeInForTrack(gain).catch(() => {});
+            } else {
+              setTargetVolume(gain).catch(() => {});
+            }
+          }
         }
       }
     }
   );
 
-  const playFile = async (f: Enriched) => {
-    const idx = files.findIndex((x) => x.id === f.id);
+  const songsForContext = (ctx: Context): Enriched[] => {
+    if (ctx.kind === 'library') return files;
+    const pl = playlists.find((p) => p.id === ctx.id);
+    if (!pl) return [];
+    const map = filesByIdRef.current;
+    return pl.trackIds
+      .map((id) => map.get(id))
+      .filter((f): f is Enriched => !!f);
+  };
+
+  const playFromContext = async (ctx: Context, trackId: string) => {
+    const list = songsForContext(ctx);
+    const idx = list.findIndex((f) => f.id === trackId);
     if (idx < 0) return;
     hapSelect();
-    await TrackPlayer.skip(idx);
+    setContext(ctx);
+    await buildQueue(list, idx);
     await TrackPlayer.play();
   };
 
   const togglePlay = async () => {
     if (!currentId && files.length > 0) {
-      await TrackPlayer.skip(0);
-      await TrackPlayer.play();
+      await playFromContext({ kind: 'library' }, files[0].id);
       return;
     }
     if (playing) await TrackPlayer.pause();
@@ -559,17 +771,15 @@ export default function App() {
   };
 
   const shuffle = async () => {
-    if (files.length === 0) return;
+    const list = songsForContext(context);
+    if (list.length === 0) return;
     hapMedium();
-    const shuffled = [...files];
+    const shuffled = [...list];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-    setFiles(shuffled);
-    await TrackPlayer.reset();
-    await TrackPlayer.add(toTracks(shuffled));
-    await TrackPlayer.skip(0);
+    await buildQueue(shuffled, 0);
     await TrackPlayer.play();
   };
 
@@ -577,6 +787,119 @@ export default function App() {
     try {
       await TrackPlayer.seekTo(pos);
     } catch {}
+  };
+
+  const openAddToPlaylist = (track: Enriched) => {
+    hapLight();
+    setAddTarget(track);
+  };
+
+  const addSongToPlaylist = (playlistId: string) => {
+    if (!addTarget) return;
+    const next = playlists.map((p) =>
+      p.id === playlistId ? addTrack(p, addTarget.id) : p
+    );
+    persistPlaylists(next);
+    setAddTarget(null);
+  };
+
+  const createPlaylistAndAdd = () => {
+    Alert.prompt(
+      'Nova playlist',
+      'Como quer chamar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Criar',
+          onPress: (name) => {
+            const pl = newPlaylist(name || '');
+            const withTrack = addTarget ? addTrack(pl, addTarget.id) : pl;
+            persistPlaylists([...playlists, withTrack]);
+            setAddTarget(null);
+          },
+        },
+      ],
+      'plain-text',
+      ''
+    );
+  };
+
+  const createPlaylist = () => {
+    Alert.prompt(
+      'Nova playlist',
+      'Como quer chamar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Criar',
+          onPress: (name) => {
+            const pl = newPlaylist(name || '');
+            persistPlaylists([...playlists, pl]);
+          },
+        },
+      ],
+      'plain-text',
+      ''
+    );
+  };
+
+  const handlePlaylistLongPress = (pl: Playlist) => {
+    hapLight();
+    Alert.alert(pl.name, undefined, [
+      {
+        text: 'Renomear',
+        onPress: () => {
+          Alert.prompt(
+            'Renomear playlist',
+            undefined,
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              {
+                text: 'Salvar',
+                onPress: (name) => {
+                  if (!name) return;
+                  const next = playlists.map((p) =>
+                    p.id === pl.id ? renamePlaylist(p, name) : p
+                  );
+                  persistPlaylists(next);
+                },
+              },
+            ],
+            'plain-text',
+            pl.name
+          );
+        },
+      },
+      {
+        text: 'Apagar',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert(
+            'Apagar playlist?',
+            'Isso remove so a playlist. Suas musicas continuam na biblioteca.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              {
+                text: 'Apagar',
+                style: 'destructive',
+                onPress: () => {
+                  persistPlaylists(playlists.filter((p) => p.id !== pl.id));
+                  if (viewingPlaylistId === pl.id) setViewingPlaylistId(null);
+                },
+              },
+            ]
+          );
+        },
+      },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  };
+
+  const removeFromPlaylist = (playlistId: string, trackId: string) => {
+    const next = playlists.map((p) =>
+      p.id === playlistId ? removeTrack(p, trackId) : p
+    );
+    persistPlaylists(next);
   };
 
   if (!ready || loading) {
@@ -616,44 +939,200 @@ export default function App() {
     );
   }
 
+  const viewingPlaylist = viewingPlaylistId
+    ? playlists.find((p) => p.id === viewingPlaylistId)
+    : null;
+  const viewingPlaylistSongs = viewingPlaylist
+    ? viewingPlaylist.trackIds
+        .map((id) => filesByIdRef.current.get(id))
+        .filter((f): f is Enriched => !!f)
+    : [];
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       <SafeAreaView style={{ flex: 1 }}>
-        <View style={styles.libHeader}>
-          <View>
-            <Text style={styles.libKicker}>Biblioteca</Text>
-            <Text style={styles.libTitle}>Suas musicas</Text>
-          </View>
-          <Pressable
-            hitSlop={10}
-            onPress={() => {
-              hapLight();
-              reload();
-            }}
-            style={styles.libReload}
-          >
-            <Text style={styles.libReloadIcon}>↻</Text>
-          </Pressable>
-        </View>
+        {viewingPlaylist ? (
+          <>
+            <View style={styles.libHeader}>
+              <Pressable
+                hitSlop={10}
+                onPress={() => {
+                  hapLight();
+                  setViewingPlaylistId(null);
+                }}
+                style={styles.libReload}
+              >
+                <Text style={styles.libReloadIcon}>‹</Text>
+              </Pressable>
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <Text style={styles.libKicker}>Playlist</Text>
+                <Text numberOfLines={1} style={styles.libTitle}>
+                  {viewingPlaylist.name}
+                </Text>
+              </View>
+              <Pressable
+                hitSlop={10}
+                onPress={() => {
+                  hapLight();
+                  if (viewingPlaylistSongs.length > 0) {
+                    playFromContext(
+                      { kind: 'playlist', id: viewingPlaylist.id },
+                      viewingPlaylistSongs[0].id
+                    );
+                  }
+                }}
+                style={styles.libReload}
+              >
+                <Text style={styles.libReloadIcon}>▶</Text>
+              </Pressable>
+            </View>
+            {viewingPlaylistSongs.length === 0 ? (
+              <View style={styles.center}>
+                <Text style={styles.emptyIcon}>♪</Text>
+                <Text style={styles.emptyTitle}>Playlist vazia</Text>
+                <Text style={styles.emptyHelp}>
+                  Volte na aba Musicas, segure uma musica e adicione a esta
+                  playlist.
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={viewingPlaylistSongs}
+                keyExtractor={(f) => f.id}
+                contentContainerStyle={{
+                  paddingHorizontal: spacing.lg,
+                  paddingBottom: 140,
+                  paddingTop: spacing.sm,
+                }}
+                renderItem={({ item }) => (
+                  <SongRow
+                    item={item}
+                    active={item.id === currentId}
+                    onPress={() =>
+                      playFromContext(
+                        { kind: 'playlist', id: viewingPlaylist.id },
+                        item.id
+                      )
+                    }
+                    onLongPress={() => {
+                      hapLight();
+                      Alert.alert(
+                        item.meta?.title || item.name,
+                        undefined,
+                        [
+                          {
+                            text: 'Remover da playlist',
+                            style: 'destructive',
+                            onPress: () =>
+                              removeFromPlaylist(viewingPlaylist.id, item.id),
+                          },
+                          { text: 'Cancelar', style: 'cancel' },
+                        ]
+                      );
+                    }}
+                  />
+                )}
+                ItemSeparatorComponent={() => (
+                  <View style={{ height: spacing.xs }} />
+                )}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            <View style={styles.libHeader}>
+              <View>
+                <Text style={styles.libKicker}>Biblioteca</Text>
+                <Text style={styles.libTitle}>Suas musicas</Text>
+              </View>
+              <Pressable
+                hitSlop={10}
+                onPress={() => {
+                  hapLight();
+                  reload();
+                }}
+                style={styles.libReload}
+              >
+                <Text style={styles.libReloadIcon}>↻</Text>
+              </Pressable>
+            </View>
 
-        <FlatList
-          data={files}
-          keyExtractor={(f) => f.id}
-          contentContainerStyle={{
-            paddingHorizontal: spacing.lg,
-            paddingBottom: 140,
-            paddingTop: spacing.sm,
-          }}
-          renderItem={({ item }) => (
-            <SongRow
-              item={item}
-              active={item.id === currentId}
-              onPress={() => playFile(item)}
-            />
-          )}
-          ItemSeparatorComponent={() => <View style={{ height: spacing.xs }} />}
-        />
+            <TabSwitcher tab={tab} onChange={setTab} />
+
+            {tab === 'songs' ? (
+              <FlatList
+                data={files}
+                keyExtractor={(f) => f.id}
+                contentContainerStyle={{
+                  paddingHorizontal: spacing.lg,
+                  paddingBottom: 140,
+                  paddingTop: spacing.sm,
+                }}
+                renderItem={({ item }) => (
+                  <SongRow
+                    item={item}
+                    active={item.id === currentId}
+                    onPress={() =>
+                      playFromContext({ kind: 'library' }, item.id)
+                    }
+                    onLongPress={() => openAddToPlaylist(item)}
+                  />
+                )}
+                ItemSeparatorComponent={() => (
+                  <View style={{ height: spacing.xs }} />
+                )}
+              />
+            ) : (
+              <>
+                <View style={styles.plActionsRow}>
+                  <Pressable
+                    style={styles.plCreateBtn}
+                    onPress={() => {
+                      hapLight();
+                      createPlaylist();
+                    }}
+                  >
+                    <Text style={styles.plCreateIcon}>+</Text>
+                    <Text style={styles.plCreateText}>Nova playlist</Text>
+                  </Pressable>
+                </View>
+                {playlists.length === 0 ? (
+                  <View style={styles.center}>
+                    <Text style={styles.emptyIcon}>♪</Text>
+                    <Text style={styles.emptyTitle}>Sem playlists ainda</Text>
+                    <Text style={styles.emptyHelp}>
+                      Toque em "Nova playlist" para comecar, ou segure uma
+                      musica na aba Musicas.
+                    </Text>
+                  </View>
+                ) : (
+                  <FlatList
+                    data={playlists}
+                    keyExtractor={(p) => p.id}
+                    contentContainerStyle={{
+                      paddingHorizontal: spacing.lg,
+                      paddingBottom: 140,
+                    }}
+                    renderItem={({ item }) => (
+                      <PlaylistRow
+                        playlist={item}
+                        onPress={() => {
+                          hapSelect();
+                          setViewingPlaylistId(item.id);
+                        }}
+                        onLongPress={() => handlePlaylistLongPress(item)}
+                      />
+                    )}
+                    ItemSeparatorComponent={() => (
+                      <View style={{ height: spacing.xs }} />
+                    )}
+                  />
+                )}
+              </>
+            )}
+          </>
+        )}
       </SafeAreaView>
 
       <MiniPlayer
@@ -682,6 +1161,15 @@ export default function App() {
         onPrev={prev}
         onShuffle={shuffle}
         onSeek={seek}
+      />
+
+      <AddToPlaylistModal
+        visible={!!addTarget}
+        track={addTarget ?? undefined}
+        playlists={playlists}
+        onClose={() => setAddTarget(null)}
+        onAdd={addSongToPlaylist}
+        onCreateAndAdd={createPlaylistAndAdd}
       />
     </View>
   );
@@ -754,6 +1242,24 @@ const styles = StyleSheet.create({
   },
   libReloadIcon: { color: theme.text, fontSize: 20 },
 
+  tabBar: {
+    flexDirection: 'row',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    backgroundColor: theme.surface,
+    borderRadius: radius.full,
+    padding: 4,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: radius.full,
+  },
+  tabBtnActive: { backgroundColor: theme.accent },
+  tabText: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
+  tabTextActive: { color: theme.accentDark },
+
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -766,6 +1272,44 @@ const styles = StyleSheet.create({
   rowTitle: { color: theme.text, fontSize: 16, fontWeight: '600' },
   rowArtist: { color: theme.textMuted, fontSize: 13, marginTop: 2 },
   artFallback: { alignItems: 'center', justifyContent: 'center' },
+
+  plRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+  },
+  plIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.sm,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plIconText: { color: theme.accent, fontSize: 24, fontWeight: '800' },
+  plChevron: { color: theme.textDim, fontSize: 28, marginRight: spacing.sm },
+
+  plActionsRow: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  plCreateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.surface,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+  },
+  plCreateIcon: {
+    color: theme.accent,
+    fontSize: 22,
+    fontWeight: '900',
+    marginRight: spacing.sm,
+  },
+  plCreateText: { color: theme.text, fontSize: 16, fontWeight: '700' },
 
   miniWrap: {
     position: 'absolute',
@@ -807,6 +1351,61 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
   },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: theme.overlay,
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: theme.bgElevated,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  modalTitle: {
+    color: theme.text,
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  modalSub: {
+    color: theme.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: spacing.md,
+  },
+  modalList: { maxHeight: 360 },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.divider,
+  },
+  modalItemIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  modalItemIconText: { color: theme.accent, fontSize: 18, fontWeight: '800' },
+  modalItemText: { color: theme.text, fontSize: 15, fontWeight: '600' },
+  modalItemSub: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
+  modalCancel: {
+    marginTop: spacing.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    backgroundColor: theme.surface,
+    borderRadius: radius.full,
+  },
+  modalCancelText: { color: theme.text, fontSize: 15, fontWeight: '700' },
 
   npContainer: { flex: 1 },
   npHeader: {

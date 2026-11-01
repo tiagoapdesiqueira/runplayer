@@ -4,6 +4,7 @@ export interface Metadata {
   title?: string;
   artist?: string;
   artworkUri?: string;
+  gainDb?: number;
 }
 
 const CACHE_DIR = (FileSystem.cacheDirectory ?? '') + 'artwork/';
@@ -131,6 +132,49 @@ async function savePictureFile(
   return path;
 }
 
+function parseTxxx(
+  bytes: Uint8Array,
+  start: number,
+  end: number
+): { key: string; value: string } | undefined {
+  if (start >= end) return;
+  const encoding = bytes[start];
+  let pos = start + 1;
+  let keyEnd: number;
+  if (encoding === 1 || encoding === 2) {
+    keyEnd = findDoubleNullTerminator(bytes, pos, end);
+    if (keyEnd < 0) return;
+  } else {
+    keyEnd = findNullTerminator(bytes, pos, end);
+    if (keyEnd < 0) return;
+  }
+  const keyBytes = bytes.subarray(pos, keyEnd);
+  const key = decodeTextRaw(encoding, keyBytes);
+  const valStart = encoding === 1 || encoding === 2 ? keyEnd + 2 : keyEnd + 1;
+  if (valStart >= end) return;
+  const valBytes = bytes.subarray(valStart, end);
+  const value = decodeTextRaw(encoding, valBytes);
+  return { key, value };
+}
+
+function decodeTextRaw(encoding: number, data: Uint8Array): string {
+  try {
+    if (encoding === 0) return decodeLatin1(stripNulls(data));
+    if (encoding === 3) return decodeUtf8(stripNulls(data));
+    if (encoding === 1) return decodeUtf16WithBom(data);
+    if (encoding === 2) return decodeUtf16BE(stripNulls(data));
+  } catch {}
+  return '';
+}
+
+function parseGainDb(value: string): number | undefined {
+  const m = value.match(/(-?\+?[\d.]+)\s*dB/i);
+  if (!m) return;
+  const n = parseFloat(m[1]);
+  if (!isFinite(n)) return;
+  return Math.max(-20, Math.min(20, n));
+}
+
 async function parseApic(
   bytes: Uint8Array,
   start: number,
@@ -215,6 +259,18 @@ export async function readId3(uri: string, trackKey: string): Promise<Metadata> 
       result.title = decodeText(bytes, frameStart, frameEnd);
     } else if (id === 'TPE1') {
       result.artist = decodeText(bytes, frameStart, frameEnd);
+    } else if (id === 'TXXX') {
+      const kv = parseTxxx(bytes, frameStart, frameEnd);
+      if (kv) {
+        const key = kv.key.toLowerCase();
+        if (key === 'replaygain_track_gain' && result.gainDb == null) {
+          const n = parseGainDb(kv.value);
+          if (n != null) result.gainDb = n;
+        } else if (key === 'replaygain_album_gain' && result.gainDb == null) {
+          const n = parseGainDb(kv.value);
+          if (n != null) result.gainDb = n;
+        }
+      }
     } else if (id === 'APIC') {
       try {
         result.artworkUri = await parseApic(bytes, frameStart, frameEnd, trackKey);
