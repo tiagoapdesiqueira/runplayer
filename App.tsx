@@ -47,6 +47,7 @@ import {
   stopWorkout,
   WorkoutStats,
 } from './workout';
+import { requestHeartRateAuth } from './healthkit';
 
 const DOC_DIR = FileSystem.documentDirectory ?? '';
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -807,6 +808,7 @@ export default function App() {
 
   const handleStartWorkout = async () => {
     hapMedium();
+    await requestHeartRateAuth();
     const okGps = await startWorkout(setWorkoutStats);
     if (!okGps) {
       Alert.alert(
@@ -1150,6 +1152,7 @@ export default function App() {
                   <Text style={styles.workoutMeta}>
                     {fmtPace(workoutStats.paceSecPerKm)} /km ·{' '}
                     {fmt(workoutStats.elapsedS)}
+                    {workoutStats.bpm ? ` · ${workoutStats.bpm} bpm` : ''}
                   </Text>
                 </View>
                 <Text style={styles.workoutStop}>Parar</Text>

@@ -1,11 +1,14 @@
 import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
 
+import { getLatestBpm } from './healthkit';
+
 export interface WorkoutStats {
   distanceM: number;
   elapsedS: number;
   paceSecPerKm: number;
   lastKmAnnounced: number;
+  bpm?: number | null;
 }
 
 const INITIAL: WorkoutStats = {
@@ -22,6 +25,7 @@ let lastPoint: { lat: number; lon: number; t: number } | null = null;
 let startedAt = 0;
 let stats: WorkoutStats = { ...INITIAL };
 let tickTimer: ReturnType<typeof setInterval> | null = null;
+let bpmTimer: ReturnType<typeof setInterval> | null = null;
 let listeners: Set<Listener> = new Set();
 
 function haversine(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -53,14 +57,13 @@ function formatPaceLabel(secPerKm: number): string {
 
 function announceKm(km: number) {
   const paceLabel = formatPaceLabel(stats.paceSecPerKm);
-  let msg: string;
-  if (paceLabel) {
-    msg = `Quilometro ${km}. Ritmo ${paceLabel} por quilometro.`;
-  } else {
-    msg = `Quilometro ${km}.`;
+  const parts: string[] = [`Quilometro ${km}.`];
+  if (paceLabel) parts.push(`Ritmo ${paceLabel} por quilometro.`);
+  if (stats.bpm != null && stats.bpm > 30 && stats.bpm < 230) {
+    parts.push(`Batimentos ${stats.bpm}.`);
   }
   try {
-    Speech.speak(msg, {
+    Speech.speak(parts.join(' '), {
       language: 'pt-BR',
       rate: 0.98,
       pitch: 1.0,
@@ -131,6 +134,11 @@ export async function startWorkout(onChange: Listener): Promise<boolean> {
     return false;
   }
   tickTimer = setInterval(tick, 1000);
+  bpmTimer = setInterval(async () => {
+    const bpm = await getLatestBpm(180);
+    stats.bpm = bpm;
+    emit();
+  }, 10000);
   emit();
   return true;
 }
@@ -145,6 +153,10 @@ export function stopWorkout(onChange?: Listener) {
   if (tickTimer) {
     clearInterval(tickTimer);
     tickTimer = null;
+  }
+  if (bpmTimer) {
+    clearInterval(bpmTimer);
+    bpmTimer = null;
   }
   startedAt = 0;
   lastPoint = null;

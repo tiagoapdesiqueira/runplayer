@@ -17,7 +17,8 @@
         "NSLocationWhenInUseUsageDescription": "Usado para medir distancia e ritmo durante seus treinos.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Usado para medir distancia e ritmo mesmo com a tela bloqueada.",
         "NSLocationAlwaysUsageDescription": "Usado para medir distancia e ritmo mesmo com a tela bloqueada.",
-        "NSMotionUsageDescription": "Usado para detectar quando voce para de correr e pausar a musica."
+        "NSMotionUsageDescription": "Usado para detectar quando voce para de correr e pausar a musica.",
+        "NSHealthShareUsageDescription": "Usado para ler sua frequencia cardiaca durante o treino e narrar os batimentos."
       }
     },
     "plugins": [
@@ -32,6 +33,12 @@
         "expo-sensors",
         {
           "motionPermission": "Usado para detectar quando voce para de correr e pausar a musica."
+        }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "healthSharePermission": "Usado para ler sua frequencia cardiaca durante o treino."
         }
       ]
     ]
