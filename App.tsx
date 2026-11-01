@@ -15,7 +15,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -204,11 +203,7 @@ const ArtworkThumb = React.memo(function ArtworkThumb({
   if (!uri) {
     return (
       <View style={[style, styles.artFallback]}>
-        <Ionicons
-          name="musical-notes"
-          size={size * 0.4}
-          color={theme.textDim}
-        />
+        <Text style={{ fontSize: size * 0.4, color: theme.textDim }}>♪</Text>
       </View>
     );
   }
@@ -314,7 +309,7 @@ function PlaylistRow({
       ]}
     >
       <View style={styles.plIcon}>
-        <Ionicons name="musical-notes" size={24} color={theme.accent} />
+        <Text style={styles.plIconText}>♪</Text>
       </View>
       <View style={styles.rowText}>
         <Text numberOfLines={1} style={styles.rowTitle}>
@@ -325,12 +320,7 @@ function PlaylistRow({
           {playlist.trackIds.length === 1 ? 'musica' : 'musicas'}
         </Text>
       </View>
-      <Ionicons
-        name="chevron-forward"
-        size={22}
-        color={theme.textDim}
-        style={{ marginRight: spacing.sm }}
-      />
+      <Text style={styles.plChevron}>›</Text>
     </Pressable>
   );
 }
@@ -376,11 +366,7 @@ function MiniPlayer({
             onToggle();
           }}
         >
-          <Ionicons
-            name={playing ? 'pause' : 'play'}
-            size={18}
-            color={theme.accentDark}
-          />
+          <Text style={styles.miniBtnText}>{playing ? '❚❚' : '▶'}</Text>
         </Pressable>
       </Pressable>
     </View>
@@ -425,7 +411,7 @@ function AddToPlaylistModal({
               }}
             >
               <View style={styles.modalItemIcon}>
-                <Ionicons name="add" size={20} color={theme.accent} />
+                <Text style={styles.modalItemIconText}>+</Text>
               </View>
               <Text style={styles.modalItemText}>Criar nova playlist</Text>
             </Pressable>
@@ -440,11 +426,7 @@ function AddToPlaylistModal({
                 }}
               >
                 <View style={styles.modalItemIcon}>
-                  <Ionicons
-                    name="musical-notes"
-                    size={18}
-                    color={theme.accent}
-                  />
+                  <Text style={styles.modalItemIconText}>♪</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={styles.modalItemText}>
@@ -530,7 +512,7 @@ function NowPlaying({
               }}
               style={styles.npHeaderBtn}
             >
-              <Ionicons name="chevron-down" size={28} color={theme.text} />
+              <Text style={styles.npHeaderIcon}>⌄</Text>
             </Pressable>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={styles.npHeaderLabel}>TOCANDO AGORA</Text>
@@ -577,7 +559,7 @@ function NowPlaying({
                 onShuffle();
               }}
             >
-              <Ionicons name="shuffle" size={22} color={theme.text} />
+              <Text style={styles.npSideIcon}>⇄</Text>
             </Pressable>
             <Pressable
               hitSlop={10}
@@ -587,7 +569,7 @@ function NowPlaying({
                 onPrev();
               }}
             >
-              <Ionicons name="play-skip-back" size={32} color={theme.text} />
+              <Text style={styles.npCtrlIcon}>⏮</Text>
             </Pressable>
             <Pressable
               hitSlop={10}
@@ -597,11 +579,7 @@ function NowPlaying({
                 onToggle();
               }}
             >
-              <Ionicons
-                name={playing ? 'pause' : 'play'}
-                size={30}
-                color={theme.accentDark}
-              />
+              <Text style={styles.npPlayIcon}>{playing ? '❚❚' : '▶'}</Text>
             </Pressable>
             <Pressable
               hitSlop={10}
@@ -611,7 +589,7 @@ function NowPlaying({
                 onNext();
               }}
             >
-              <Ionicons name="play-skip-forward" size={32} color={theme.text} />
+              <Text style={styles.npCtrlIcon}>⏭</Text>
             </Pressable>
             <View style={styles.npSideBtn} />
           </View>
@@ -1062,12 +1040,7 @@ export default function App() {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" />
         <View style={styles.center}>
-          <Ionicons
-            name="musical-notes-outline"
-            size={64}
-            color={theme.textDim}
-            style={{ marginBottom: spacing.lg }}
-          />
+          <Text style={styles.emptyIcon}>♪</Text>
           <Text style={styles.emptyTitle}>Nenhuma musica ainda</Text>
           <Text style={styles.emptyHelp}>
             Abra o app Arquivos no iPhone, va em{'\n'}
@@ -1112,7 +1085,7 @@ export default function App() {
                 }}
                 style={styles.iconBtn}
               >
-                <Ionicons name="chevron-back" size={22} color={theme.text} />
+                <Text style={styles.iconBtnText}>‹</Text>
               </Pressable>
               <View style={{ flex: 1, marginLeft: spacing.md }}>
                 <Text style={styles.libKicker}>Playlist</Text>
@@ -1133,17 +1106,12 @@ export default function App() {
                 }}
                 style={styles.iconBtnAccent}
               >
-                <Ionicons name="play" size={18} color={theme.accentDark} />
+                <Text style={styles.iconBtnTextAccent}>▶</Text>
               </Pressable>
             </View>
             {viewingPlaylistSongs.length === 0 ? (
               <View style={styles.center}>
-                <Ionicons
-            name="musical-notes-outline"
-            size={64}
-            color={theme.textDim}
-            style={{ marginBottom: spacing.lg }}
-          />
+                <Text style={styles.emptyIcon}>♪</Text>
                 <Text style={styles.emptyTitle}>Playlist vazia</Text>
                 <Text style={styles.emptyHelp}>
                   Volte na aba Musicas, segure uma musica e adicione a esta
@@ -1219,12 +1187,7 @@ export default function App() {
               </Pressable>
             ) : (
               <Pressable style={styles.workoutStart} onPress={handleStartWorkout}>
-                <Ionicons
-                  name="walk"
-                  size={18}
-                  color={theme.accentDark}
-                  style={{ marginRight: spacing.sm }}
-                />
+                <Text style={styles.workoutStartIcon}>▶</Text>
                 <Text style={styles.workoutStartText}>Iniciar treino</Text>
               </Pressable>
             )}
@@ -1271,23 +1234,13 @@ export default function App() {
                       createPlaylist();
                     }}
                   >
-                    <Ionicons
-                      name="add"
-                      size={22}
-                      color={theme.accent}
-                      style={{ marginRight: spacing.sm }}
-                    />
+                    <Text style={styles.plCreateIcon}>+</Text>
                     <Text style={styles.plCreateText}>Nova playlist</Text>
                   </Pressable>
                 </View>
                 {playlists.length === 0 ? (
                   <View style={styles.center}>
-                    <Ionicons
-            name="musical-notes-outline"
-            size={64}
-            color={theme.textDim}
-            style={{ marginBottom: spacing.lg }}
-          />
+                    <Text style={styles.emptyIcon}>♪</Text>
                     <Text style={styles.emptyTitle}>Sem playlists ainda</Text>
                     <Text style={styles.emptyHelp}>
                       Toque em "Nova playlist" para comecar, ou segure uma
@@ -1436,6 +1389,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  iconBtnText: { color: theme.text, fontSize: 20 },
+  iconBtnTextAccent: { color: theme.accentDark, fontSize: 18, fontWeight: '900' },
 
   workoutStart: {
     flexDirection: 'row',
