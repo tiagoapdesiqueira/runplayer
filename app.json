@@ -40,7 +40,8 @@
         {
           "healthSharePermission": "Usado para ler sua frequencia cardiaca durante o treino."
         }
-      ]
+      ],
+      "@bacons/apple-targets"
     ]
   }
 }

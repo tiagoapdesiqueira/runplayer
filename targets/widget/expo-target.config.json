@@ -1,0 +1,9 @@
+{
+  "type": "widget",
+  "name": "RunPlayerWidget",
+  "deploymentTarget": "17.0",
+  "colors": {
+    "accent": "#ff6a3d",
+    "widgetBackground": "#0a0a0d"
+  }
+}

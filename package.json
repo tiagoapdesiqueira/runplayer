@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
+    "@bacons/apple-targets": "^0.2.0",
     "@types/react": "~18.3.12",
     "typescript": "~5.3.3"
   },
