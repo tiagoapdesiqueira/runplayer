@@ -66,14 +66,17 @@ import {
 import { fadeInForTrack, resetVolumeState, setTargetVolume } from './volume';
 import { startAutoPause, stopAutoPause } from './autoPause';
 import {
-  announceDebugSample,
   announceWorkoutEnd,
-  listPtBrVoices,
   startWorkout,
   stopWorkout,
   WorkoutStats,
 } from './workout';
-import { diagnoseBpm, requestHeartRateAuth } from './healthkit';
+import {
+  addWorkout,
+  deleteWorkout,
+  loadWorkouts,
+  WorkoutEntry,
+} from './workoutHistory';
 
 const DOC_DIR = FileSystem.documentDirectory ?? '';
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -198,6 +201,39 @@ function sumDuration(list: Enriched[]): number {
     if (f.meta?.durationSec) sum += f.meta.durationSec;
   }
   return sum;
+}
+
+function fmtWorkoutDate(ts: number): string {
+  const d = new Date(ts);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (sameDay(d, today)) return 'Hoje';
+  if (sameDay(d, yesterday)) return 'Ontem';
+  return d.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function fmtWorkoutTime(ts: number): string {
+  const d = new Date(ts);
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtWorkoutDuration(startMs: number, endMs: number): string {
+  const secs = Math.max(0, (endMs - startMs) / 1000);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  if (h > 0) return `${h}h ${m}min`;
+  if (m > 0) return `${m}min ${s}s`;
+  return `${s}s`;
 }
 
 function groupByArtistSections(list: Enriched[]) {
@@ -593,6 +629,99 @@ function AddToPlaylistSheet({
   );
 }
 
+function HistorySheet({
+  visible,
+  history,
+  onClose,
+  onDelete,
+}: {
+  visible: boolean;
+  history: WorkoutEntry[];
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>Historico de treinos</Text>
+          <Text style={styles.sheetSub}>
+            {history.length}{' '}
+            {history.length === 1 ? 'treino registrado' : 'treinos registrados'}
+          </Text>
+          {history.length === 0 ? (
+            <View style={styles.historyEmpty}>
+              <Ionicons
+                name="walk-outline"
+                size={40}
+                color={theme.textDim}
+                style={{ marginBottom: spacing.sm }}
+              />
+              <Text style={styles.historyEmptyText}>
+                Nenhum treino ainda.{'\n'}Comece agora!
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={history}
+              keyExtractor={(e) => e.id}
+              style={{ maxHeight: 480 }}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <View style={styles.historyRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.historyDate}>
+                      {fmtWorkoutDate(item.startTime)}{' '}
+                      <Text style={styles.historyTime}>
+                        · {fmtWorkoutTime(item.startTime)}
+                      </Text>
+                    </Text>
+                    <View style={styles.historyStats}>
+                      <Text style={styles.historyStatVal}>
+                        {fmtKm(item.distanceM)}
+                      </Text>
+                      <Text style={styles.historyStatUnit}>km</Text>
+                      <View style={styles.historyDot} />
+                      <Text style={styles.historyStatVal}>
+                        {fmtPace(item.paceSecPerKm)}
+                      </Text>
+                      <Text style={styles.historyStatUnit}>/km</Text>
+                      <View style={styles.historyDot} />
+                      <Text style={styles.historyStatVal}>
+                        {fmtWorkoutDuration(item.startTime, item.endTime)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => onDelete(item.id)}
+                    style={styles.historyDeleteBtn}
+                  >
+                    <Ionicons
+                      name="trash-outline"
+                      size={18}
+                      color={theme.textMuted}
+                    />
+                  </Pressable>
+                </View>
+              )}
+              ItemSeparatorComponent={() => (
+                <View style={styles.historyDivider} />
+              )}
+            />
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 function NowPlaying({
   visible,
   onClose,
@@ -838,6 +967,9 @@ export default function App() {
   const [context, setContext] = useState<Context>({ kind: 'library' });
   const [workoutActive, setWorkoutActive] = useState(false);
   const [workoutStats, setWorkoutStats] = useState<WorkoutStats | null>(null);
+  const [workoutStartedAt, setWorkoutStartedAt] = useState<number | null>(null);
+  const [workoutHistory, setWorkoutHistory] = useState<WorkoutEntry[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [shuffleOn, setShuffleOn] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.Queue);
   const [groupByArtist, setGroupByArtist] = useState(false);
@@ -958,6 +1090,8 @@ export default function App() {
       setPlaylists(pls);
       const grouped = await loadGroupByArtist();
       setGroupByArtist(grouped);
+      const hist = await loadWorkouts();
+      setWorkoutHistory(hist);
       if (list.length > 0) {
         await TrackPlayer.reset();
         await TrackPlayer.add(toTracks(list));
@@ -1302,7 +1436,6 @@ export default function App() {
 
   const handleStartWorkout = async () => {
     hapMedium();
-    await requestHeartRateAuth();
     const okGps = await startWorkout(setWorkoutStats);
     if (!okGps) {
       Alert.alert(
@@ -1312,6 +1445,7 @@ export default function App() {
       return;
     }
     await startAutoPause(handleMotionChange);
+    setWorkoutStartedAt(Date.now());
     setWorkoutActive(true);
   };
 
@@ -1321,14 +1455,43 @@ export default function App() {
       {
         text: 'Encerrar',
         style: 'destructive',
-        onPress: () => {
+        onPress: async () => {
           hapMedium();
           announceWorkoutEnd();
+          const stats = workoutStats;
+          const start = workoutStartedAt;
           stopWorkout(setWorkoutStats);
           stopAutoPause(handleMotionChange);
           setWorkoutStats(null);
           setWorkoutActive(false);
+          setWorkoutStartedAt(null);
           autoPausedRef.current = false;
+          if (start && stats && stats.distanceM >= 10) {
+            try {
+              const list = await addWorkout({
+                startTime: start,
+                endTime: Date.now(),
+                distanceM: stats.distanceM,
+                paceSecPerKm: stats.paceSecPerKm,
+              });
+              setWorkoutHistory(list);
+            } catch {}
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleDeleteWorkout = (id: string) => {
+    Alert.alert('Apagar treino?', 'Essa acao nao pode ser desfeita.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Apagar',
+        style: 'destructive',
+        onPress: async () => {
+          hapMedium();
+          const next = await deleteWorkout(id);
+          setWorkoutHistory(next);
         },
       },
     ]);
@@ -1495,6 +1658,20 @@ export default function App() {
               </View>
               <Pressable
                 hitSlop={10}
+                onPress={() => {
+                  hapLight();
+                  setHistoryOpen(true);
+                }}
+                style={styles.subtleIconBtn}
+              >
+                <Ionicons
+                  name="time-outline"
+                  size={18}
+                  color={theme.textSoft}
+                />
+              </Pressable>
+              <Pressable
+                hitSlop={10}
                 onPress={toggleGroupByArtist}
                 style={[
                   styles.subtleIconBtn,
@@ -1545,57 +1722,18 @@ export default function App() {
                   />
                 </Pressable>
               ) : (
-                <View style={styles.workoutStartRow}>
-                  <Pressable
-                    style={styles.workoutStartPill}
-                    onPress={handleStartWorkout}
-                  >
-                    <Ionicons
-                      name="walk"
-                      size={16}
-                      color={theme.accent}
-                      style={{ marginRight: spacing.xs }}
-                    />
-                    <Text style={styles.workoutStartText}>Iniciar treino</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.debugPill}
-                    onPress={async () => {
-                      hapLight();
-                      const voiceId = await announceDebugSample().catch(
-                        () => '(erro)'
-                      );
-                      const voices = await listPtBrVoices().catch(() => []);
-                      Alert.alert(
-                        'Voz em uso',
-                        `Selecionada:\n${voiceId}\n\nDisponiveis pt-BR:\n${voices.join('\n') || '(nenhuma)'}`
-                      );
-                    }}
-                  >
-                    <Ionicons
-                      name="volume-high-outline"
-                      size={14}
-                      color={theme.textSoft}
-                    />
-                    <Text style={styles.debugPillText}>Testar voz</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.debugPill}
-                    onPress={async () => {
-                      hapLight();
-                      await requestHeartRateAuth();
-                      const info = await diagnoseBpm();
-                      Alert.alert('Diagnostico BPM', info);
-                    }}
-                  >
-                    <Ionicons
-                      name="heart-outline"
-                      size={14}
-                      color={theme.textSoft}
-                    />
-                    <Text style={styles.debugPillText}>Testar BPM</Text>
-                  </Pressable>
-                </View>
+                <Pressable
+                  style={styles.workoutStartPill}
+                  onPress={handleStartWorkout}
+                >
+                  <Ionicons
+                    name="walk"
+                    size={16}
+                    color={theme.accent}
+                    style={{ marginRight: spacing.xs }}
+                  />
+                  <Text style={styles.workoutStartText}>Iniciar treino</Text>
+                </Pressable>
               )}
             </View>
 
@@ -1805,6 +1943,13 @@ export default function App() {
         onClose={() => setAddTarget(null)}
         onAdd={addSongToPlaylist}
         onCreateAndAdd={createPlaylistAndAdd}
+      />
+
+      <HistorySheet
+        visible={historyOpen}
+        history={workoutHistory}
+        onClose={() => setHistoryOpen(false)}
+        onDelete={handleDeleteWorkout}
       />
     </View>
   );
@@ -2298,6 +2443,75 @@ const styles = StyleSheet.create({
     fontFamily: ff,
     fontSize: font.caption,
     marginTop: 1,
+  },
+
+  // Workout history
+  historyEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xxl,
+  },
+  historyEmptyText: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.body,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+  },
+  historyDate: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.callout,
+    fontWeight: weight.semibold,
+    letterSpacing: -0.1,
+  },
+  historyTime: {
+    color: theme.textMuted,
+    fontWeight: weight.regular,
+    fontSize: font.small,
+  },
+  historyStats: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: 4,
+    gap: 3,
+  },
+  historyStatVal: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.small,
+    fontWeight: weight.semibold,
+    fontVariant: ['tabular-nums'],
+  },
+  historyStatUnit: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.caption,
+    fontWeight: weight.medium,
+  },
+  historyDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: theme.textDim,
+    marginHorizontal: 7,
+    alignSelf: 'center',
+  },
+  historyDeleteBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.sm,
+  },
+  historyDivider: {
+    height: 1,
+    backgroundColor: theme.divider,
   },
 
   // Now Playing
