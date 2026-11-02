@@ -10,6 +10,10 @@
     "ios": {
       "bundleIdentifier": "com.tiago.runplayer",
       "supportsTablet": false,
+      "entitlements": {
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.access": []
+      },
       "infoPlist": {
         "UIBackgroundModes": ["audio", "location"],
         "UIFileSharingEnabled": true,

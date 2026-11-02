@@ -109,6 +109,9 @@ function announceKm(km: number) {
   const paceLabel = formatPaceLabel(stats.paceSecPerKm);
   const parts: string[] = [`Quilometro ${km}.`];
   if (paceLabel) parts.push(`Ritmo ${paceLabel} por quilometro.`);
+  if (stats.bpm != null && stats.bpm > 30 && stats.bpm < 230) {
+    parts.push(`Batimentos ${stats.bpm}.`);
+  }
   speak(parts.join(' '));
 }
 

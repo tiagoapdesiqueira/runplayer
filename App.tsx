@@ -77,6 +77,7 @@ import {
   loadWorkouts,
   WorkoutEntry,
 } from './workoutHistory';
+import { requestHeartRateAuth } from './healthkit';
 
 const DOC_DIR = FileSystem.documentDirectory ?? '';
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -1436,6 +1437,7 @@ export default function App() {
 
   const handleStartWorkout = async () => {
     hapMedium();
+    await requestHeartRateAuth();
     const okGps = await startWorkout(setWorkoutStats);
     if (!okGps) {
       Alert.alert(
@@ -1713,6 +1715,17 @@ export default function App() {
                         </>
                       )}
                     </View>
+                    {workoutStats.bpm != null && (
+                      <>
+                        <View style={styles.workoutDivider} />
+                        <View style={styles.workoutStat}>
+                          <Text style={styles.workoutStatVal}>
+                            {workoutStats.bpm}
+                          </Text>
+                          <Text style={styles.workoutStatUnit}>bpm</Text>
+                        </View>
+                      </>
+                    )}
                   </View>
                   <Ionicons
                     name="stop"
