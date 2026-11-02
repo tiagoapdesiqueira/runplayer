@@ -40,9 +40,11 @@ import { readId3, Metadata } from './metadata';
 import {
   hasSeededWorkouts,
   loadGroupByArtist,
+  loadMetaCache,
   loadResume,
   markWorkoutsSeeded,
   saveGroupByArtist,
+  saveMetaCache,
   saveResume,
 } from './storage';
 import {
@@ -1051,6 +1053,8 @@ export default function App() {
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
   const filesByIdRef = useRef<Map<string, Enriched>>(new Map());
+  const metaCacheRef = useRef<Record<string, Metadata>>({});
+  const cacheSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoPausedRef = useRef(false);
   const playingRef = useRef(false);
   const workoutActiveRef = useRef(false);
@@ -1102,26 +1106,39 @@ export default function App() {
     }
   }, [enrich]);
 
-  const enrich = useCallback(async (list: Mp3[]) => {
-    for (const file of list) {
-      try {
-        const meta = await readId3(file.uri, file.id);
-        setFiles((prev) =>
-          prev.map((f) => (f.id === file.id ? { ...f, meta } : f))
-        );
-        filesByIdRef.current.set(file.id, { ...file, meta });
-        const queue = await TrackPlayer.getQueue();
-        const idx = queue.findIndex((t) => t.id === file.id);
-        if (idx >= 0) {
-          await TrackPlayer.updateMetadataForTrack(idx, {
-            title: meta.title || file.name,
-            artist: meta.artist || 'Desconhecido',
-            artwork: meta.artworkUri,
-          });
-        }
-      } catch {}
-    }
+  const scheduleCacheSave = useCallback(() => {
+    if (cacheSaveTimerRef.current) clearTimeout(cacheSaveTimerRef.current);
+    cacheSaveTimerRef.current = setTimeout(() => {
+      saveMetaCache(metaCacheRef.current).catch(() => {});
+    }, 1500);
   }, []);
+
+  const enrich = useCallback(
+    async (list: Mp3[]) => {
+      for (const file of list) {
+        if (metaCacheRef.current[file.id]) continue;
+        try {
+          const meta = await readId3(file.uri, file.id);
+          metaCacheRef.current[file.id] = meta;
+          scheduleCacheSave();
+          setFiles((prev) =>
+            prev.map((f) => (f.id === file.id ? { ...f, meta } : f))
+          );
+          filesByIdRef.current.set(file.id, { ...file, meta });
+          const queue = await TrackPlayer.getQueue();
+          const idx = queue.findIndex((t) => t.id === file.id);
+          if (idx >= 0) {
+            await TrackPlayer.updateMetadataForTrack(idx, {
+              title: meta.title || file.name,
+              artist: meta.artist || 'Desconhecido',
+              artwork: meta.artworkUri,
+            });
+          }
+        } catch {}
+      }
+    },
+    [scheduleCacheSave]
+  );
 
   const buildQueue = useCallback(
     async (list: Enriched[], startIndex: number) => {
@@ -1160,21 +1177,26 @@ export default function App() {
       didSetupRef.current = true;
       await setupPlayer();
       setReady(true);
+      const cache = await loadMetaCache();
+      metaCacheRef.current = cache;
       const list = await listMp3s();
-      filesByIdRef.current = new Map(list.map((f) => [f.id, f]));
-      setFiles(list);
+      const enriched: Enriched[] = list.map((f) =>
+        cache[f.id] ? { ...f, meta: cache[f.id] } : f
+      );
+      filesByIdRef.current = new Map(enriched.map((f) => [f.id, f]));
+      setFiles(enriched);
       const pls = await loadPlaylists();
       setPlaylists(pls);
       const grouped = await loadGroupByArtist();
       setGroupByArtist(grouped);
       const hist = await loadWorkouts();
       setWorkoutHistory(hist);
-      if (list.length > 0) {
+      if (enriched.length > 0) {
         await TrackPlayer.reset();
-        await TrackPlayer.add(toTracks(list));
+        await TrackPlayer.add(toTracks(enriched));
         const resume = await loadResume();
         if (resume) {
-          const idx = list.findIndex((f) => f.id === resume.trackId);
+          const idx = enriched.findIndex((f) => f.id === resume.trackId);
           if (idx >= 0) {
             try {
               await TrackPlayer.skip(idx);
@@ -1479,6 +1501,8 @@ export default function App() {
       try {
         await FileSystem.deleteAsync(song.uri, { idempotent: true });
       } catch {}
+      delete metaCacheRef.current[song.id];
+      scheduleCacheSave();
       const nextPlaylists = playlists.map((p) => removeTrack(p, song.id));
       persistPlaylists(nextPlaylists);
       const nextFiles = files.filter((f) => f.id !== song.id);
@@ -1531,7 +1555,9 @@ export default function App() {
         try {
           await FileSystem.deleteAsync(f.uri, { idempotent: true });
         } catch {}
+        delete metaCacheRef.current[f.id];
       }
+      scheduleCacheSave();
       const nextPlaylists = playlists.map((p) => ({
         ...p,
         trackIds: p.trackIds.filter((tid) => !idSet.has(tid)),
@@ -2092,6 +2118,9 @@ export default function App() {
                         if (selectionMode) toggleSelected(item.id);
                         else playFromContext({ kind: 'library' }, item.id);
                       }}
+                      onLongPress={() => {
+                        if (!selectionMode) enterSelectionMode(item.id);
+                      }}
                       onMenu={() => openSongMenu(item)}
                     />
                   )}
@@ -2392,8 +2421,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.accentSoft,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
     borderRadius: radius.full,
   },
   historyPill: {
@@ -2437,10 +2466,9 @@ const styles = StyleSheet.create({
   workoutChipPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: theme.accentSoft,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
     borderRadius: radius.full,
   },
   workoutLive: {
@@ -2451,6 +2479,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   workoutChipText: {
+    flex: 1,
     color: theme.accent,
     fontFamily: ff,
     fontSize: font.button,

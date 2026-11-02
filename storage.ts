@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const KEY_RESUME = 'runplayer.resume.v1';
 const KEY_GROUP_BY_ARTIST = 'runplayer.groupByArtist.v1';
 const KEY_WORKOUTS_SEEDED = 'runplayer.workoutsSeeded.v1';
+const KEY_META_CACHE = 'runplayer.metaCache.v1';
 
 export interface ResumeState {
   trackId: string;
@@ -58,5 +59,21 @@ export async function hasSeededWorkouts(): Promise<boolean> {
 export async function markWorkoutsSeeded(): Promise<void> {
   try {
     await AsyncStorage.setItem(KEY_WORKOUTS_SEEDED, '1');
+  } catch {}
+}
+
+export async function loadMetaCache(): Promise<Record<string, any>> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_META_CACHE);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {}
+  return {};
+}
+
+export async function saveMetaCache(cache: Record<string, any>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_META_CACHE, JSON.stringify(cache));
   } catch {}
 }
