@@ -365,12 +365,16 @@ function SegmentedTabs({
 function SongRow({
   item,
   active,
+  selectionMode,
+  selected,
   onPress,
   onLongPress,
   onMenu,
 }: {
   item: Enriched;
   active: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
   onMenu?: () => void;
@@ -384,6 +388,15 @@ function SongRow({
       delayLongPress={320}
       style={({ pressed }) => [styles.row, pressed && { opacity: 0.55 }]}
     >
+      {selectionMode ? (
+        <View style={styles.rowCheckbox}>
+          <Ionicons
+            name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+            size={22}
+            color={selected ? theme.accent : theme.textMuted}
+          />
+        </View>
+      ) : null}
       <ArtworkThumb uri={item.meta?.artworkUri} size={46} />
       <View style={styles.rowText}>
         <Text
@@ -398,7 +411,7 @@ function SongRow({
           </Text>
         ) : null}
       </View>
-      {onMenu ? (
+      {!selectionMode && onMenu ? (
         <Pressable
           hitSlop={10}
           onPress={(e) => {
@@ -1032,6 +1045,8 @@ export default function App() {
   const [groupByArtist, setGroupByArtist] = useState(false);
   const [expandedArtists, setExpandedArtists] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -1481,6 +1496,83 @@ export default function App() {
     } catch {}
   };
 
+  const enterSelectionMode = (initialId?: string) => {
+    hapMedium();
+    setTab('songs');
+    setSelectionMode(true);
+    setSelectedIds(initialId ? new Set([initialId]) : new Set());
+  };
+
+  const cancelSelection = () => {
+    hapLight();
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (id: string) => {
+    hapSelect();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const deleteMultipleSongs = async (ids: string[]) => {
+    try {
+      try {
+        await TrackPlayer.reset();
+        resetVolumeState();
+      } catch {}
+      const idSet = new Set(ids);
+      for (const f of files) {
+        if (!idSet.has(f.id)) continue;
+        try {
+          await FileSystem.deleteAsync(f.uri, { idempotent: true });
+        } catch {}
+      }
+      const nextPlaylists = playlists.map((p) => ({
+        ...p,
+        trackIds: p.trackIds.filter((tid) => !idSet.has(tid)),
+      }));
+      persistPlaylists(nextPlaylists);
+      const nextFiles = files.filter((f) => !idSet.has(f.id));
+      filesByIdRef.current = new Map(nextFiles.map((f) => [f.id, f]));
+      setFiles(nextFiles);
+      if (currentId && idSet.has(currentId)) {
+        setCurrentId(null);
+        setPlaying(false);
+      }
+      if (nextFiles.length > 0) {
+        try {
+          await TrackPlayer.add(toTracks(nextFiles));
+        } catch {}
+      }
+    } catch {}
+  };
+
+  const confirmBulkDelete = () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    Alert.alert(
+      `Excluir ${ids.length} ${ids.length === 1 ? 'musica' : 'musicas'}?`,
+      'Os arquivos serao removidos da pasta do app e das playlists. Essa acao nao pode ser desfeita.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteMultipleSongs(ids);
+            setSelectionMode(false);
+            setSelectedIds(new Set());
+          },
+        },
+      ]
+    );
+  };
+
   const confirmDeleteSong = (song: Enriched) => {
     const title = song.meta?.title || song.name;
     Alert.alert(
@@ -1532,6 +1624,10 @@ export default function App() {
       options.push({
         text: 'Adicionar a playlist',
         onPress: () => openAddToPlaylist(song),
+      });
+      options.push({
+        text: 'Selecionar varias',
+        onPress: () => enterSelectionMode(song.id),
       });
     }
     options.push({
@@ -1780,40 +1876,75 @@ export default function App() {
           </>
         ) : (
           <>
-            <View style={styles.topRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.topKicker}>Biblioteca</Text>
-                <Text style={styles.topTitle}>Suas musicas</Text>
+            {selectionMode ? (
+              <View style={styles.selectionBar}>
+                <Pressable
+                  hitSlop={10}
+                  onPress={cancelSelection}
+                  style={styles.selectionCancelBtn}
+                >
+                  <Text style={styles.selectionCancelText}>Cancelar</Text>
+                </Pressable>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={styles.selectionCountText}>
+                    {selectedIds.size}{' '}
+                    {selectedIds.size === 1
+                      ? 'selecionada'
+                      : 'selecionadas'}
+                  </Text>
+                </View>
+                <Pressable
+                  hitSlop={10}
+                  onPress={confirmBulkDelete}
+                  disabled={selectedIds.size === 0}
+                  style={[
+                    styles.selectionDeleteBtn,
+                    selectedIds.size === 0 && { opacity: 0.4 },
+                  ]}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={20}
+                    color={theme.accent}
+                  />
+                </Pressable>
               </View>
-              <Pressable
-                hitSlop={10}
-                onPress={() => {
-                  hapLight();
-                  setHistoryOpen(true);
-                }}
-                style={styles.subtleIconBtn}
-              >
-                <Ionicons
-                  name="time-outline"
-                  size={18}
-                  color={theme.textSoft}
-                />
-              </Pressable>
-              <Pressable
-                hitSlop={10}
-                onPress={toggleGroupByArtist}
-                style={[
-                  styles.subtleIconBtn,
-                  groupByArtist && styles.subtleIconBtnActive,
-                ]}
-              >
-                <Ionicons
-                  name="people-outline"
-                  size={18}
-                  color={groupByArtist ? theme.accent : theme.textSoft}
-                />
-              </Pressable>
-            </View>
+            ) : (
+              <View style={styles.topRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.topKicker}>Biblioteca</Text>
+                  <Text style={styles.topTitle}>Suas musicas</Text>
+                </View>
+                <Pressable
+                  hitSlop={10}
+                  onPress={() => {
+                    hapLight();
+                    setHistoryOpen(true);
+                  }}
+                  style={styles.subtleIconBtn}
+                >
+                  <Ionicons
+                    name="time-outline"
+                    size={18}
+                    color={theme.textSoft}
+                  />
+                </Pressable>
+                <Pressable
+                  hitSlop={10}
+                  onPress={toggleGroupByArtist}
+                  style={[
+                    styles.subtleIconBtn,
+                    groupByArtist && styles.subtleIconBtnActive,
+                  ]}
+                >
+                  <Ionicons
+                    name="people-outline"
+                    size={18}
+                    color={groupByArtist ? theme.accent : theme.textSoft}
+                  />
+                </Pressable>
+              </View>
+            )}
 
             <View style={styles.toolRow}>
               {workoutActive && workoutStats ? (
@@ -1865,7 +1996,7 @@ export default function App() {
             <SegmentedTabs tab={tab} onChange={setTab} />
 
             {tab === 'songs' ? (
-              groupByArtist ? (
+              groupByArtist && !selectionMode ? (
                 <SectionList
                   sections={groupByArtistSections(files).map((s) => ({
                     ...s,
@@ -1955,10 +2086,13 @@ export default function App() {
                     <SongRow
                       item={item}
                       active={item.id === currentId}
-                      onPress={() =>
-                        playFromContext({ kind: 'library' }, item.id)
-                      }
-                      onMenu={() => openAddToPlaylist(item)}
+                      selectionMode={selectionMode}
+                      selected={selectedIds.has(item.id)}
+                      onPress={() => {
+                        if (selectionMode) toggleSelected(item.id);
+                        else playFromContext({ kind: 'library' }, item.id);
+                      }}
+                      onMenu={() => openSongMenu(item)}
                     />
                   )}
                 />
@@ -2160,6 +2294,47 @@ const styles = StyleSheet.create({
   },
   subtleIconBtnActive: {
     backgroundColor: theme.accentSoft,
+  },
+
+  // Selection mode bar
+  selectionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  selectionCancelBtn: {
+    paddingVertical: 6,
+    paddingRight: spacing.sm,
+  },
+  selectionCancelText: {
+    color: theme.textSoft,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.medium,
+  },
+  selectionCountText: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.callout,
+    fontWeight: weight.semibold,
+    letterSpacing: -0.1,
+  },
+  selectionDeleteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    backgroundColor: theme.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowCheckbox: {
+    width: 32,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.xs,
   },
 
   // Header bar (playlist detail)
