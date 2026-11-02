@@ -1536,13 +1536,6 @@ export default function App() {
                         </>
                       )}
                     </View>
-                    <View style={styles.workoutDivider} />
-                    <View style={styles.workoutStat}>
-                      <Text style={styles.workoutStatVal}>
-                        {workoutStats.bpm ?? '--'}
-                      </Text>
-                      <Text style={styles.workoutStatUnit}>bpm</Text>
-                    </View>
                   </View>
                   <Ionicons
                     name="stop"
