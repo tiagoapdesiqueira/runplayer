@@ -1451,6 +1451,48 @@ export default function App() {
     persistPlaylists(next);
   };
 
+  const deleteSongFile = async (song: Enriched) => {
+    try {
+      try {
+        await TrackPlayer.reset();
+        resetVolumeState();
+      } catch {}
+      try {
+        await FileSystem.deleteAsync(song.uri, { idempotent: true });
+      } catch {}
+      const nextPlaylists = playlists.map((p) => removeTrack(p, song.id));
+      persistPlaylists(nextPlaylists);
+      const nextFiles = files.filter((f) => f.id !== song.id);
+      filesByIdRef.current.delete(song.id);
+      setFiles(nextFiles);
+      if (currentId === song.id) {
+        setCurrentId(null);
+        setPlaying(false);
+      }
+      if (nextFiles.length > 0) {
+        try {
+          await TrackPlayer.add(toTracks(nextFiles));
+        } catch {}
+      }
+    } catch {}
+  };
+
+  const confirmDeleteSong = (song: Enriched) => {
+    const title = song.meta?.title || song.name;
+    Alert.alert(
+      'Excluir musica?',
+      `"${title}" sera removida da pasta do app e de todas as playlists. Essa acao nao pode ser desfeita.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: () => deleteSongFile(song),
+        },
+      ]
+    );
+  };
+
   const openSongMenu = (song: Enriched, inPlaylistId?: string) => {
     hapLight();
     const options: any[] = [];
@@ -1488,6 +1530,11 @@ export default function App() {
         onPress: () => openAddToPlaylist(song),
       });
     }
+    options.push({
+      text: 'Excluir da pasta',
+      style: 'destructive',
+      onPress: () => confirmDeleteSong(song),
+    });
     options.push({ text: 'Cancelar', style: 'cancel' });
     Alert.alert(song.meta?.title || song.name, undefined, options);
   };
