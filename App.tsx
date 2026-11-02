@@ -73,7 +73,7 @@ import {
   stopWorkout,
   WorkoutStats,
 } from './workout';
-import { requestHeartRateAuth } from './healthkit';
+import { diagnoseBpm, requestHeartRateAuth } from './healthkit';
 
 const DOC_DIR = FileSystem.documentDirectory ?? '';
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -1586,6 +1586,22 @@ export default function App() {
                     />
                     <Text style={styles.debugPillText}>Testar voz</Text>
                   </Pressable>
+                  <Pressable
+                    style={styles.debugPill}
+                    onPress={async () => {
+                      hapLight();
+                      await requestHeartRateAuth();
+                      const info = await diagnoseBpm();
+                      Alert.alert('Diagnostico BPM', info);
+                    }}
+                  >
+                    <Ionicons
+                      name="heart-outline"
+                      size={14}
+                      color={theme.textSoft}
+                    />
+                    <Text style={styles.debugPillText}>Testar BPM</Text>
+                  </Pressable>
                 </View>
               )}
             </View>
@@ -1934,6 +1950,7 @@ const styles = StyleSheet.create({
   workoutStartRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   workoutStartPill: {
