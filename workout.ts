@@ -208,6 +208,21 @@ export function isWorkoutActive(): boolean {
   return watcher != null;
 }
 
+export async function announceDebugSample() {
+  await warmupVoice();
+  const bpm = await getLatestBpm(300);
+  const parts: string[] = [
+    'Quilometro 1.',
+    'Ritmo 5 e 30 por quilometro.',
+  ];
+  if (bpm != null && bpm > 30 && bpm < 230) {
+    parts.push(`Batimentos ${bpm}.`);
+  } else {
+    parts.push('Batimentos 160.');
+  }
+  speak(parts.join(' '));
+}
+
 export function announceWorkoutEnd() {
   const km = (stats.distanceM / 1000).toFixed(2).replace('.', ',');
   const paceLabel = formatPaceLabel(stats.paceSecPerKm);

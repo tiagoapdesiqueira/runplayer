@@ -7,7 +7,9 @@ import {
   Image,
   Modal,
   Pressable,
+  RefreshControl,
   SafeAreaView,
+  SectionList,
   StatusBar,
   StyleSheet,
   Text,
@@ -31,7 +33,12 @@ import TrackPlayer, {
 } from 'react-native-track-player';
 
 import { readId3, Metadata } from './metadata';
-import { loadResume, saveResume } from './storage';
+import {
+  loadGroupByArtist,
+  loadResume,
+  saveGroupByArtist,
+  saveResume,
+} from './storage';
 import {
   defaultPalette,
   ff,
@@ -44,16 +51,22 @@ import {
 } from './theme';
 import {
   addTrack,
+  isLiked,
+  LIKED_PLAYLIST_ID,
   loadPlaylists,
+  moveTrackToEnd,
+  moveTrackToTop,
   newPlaylist,
   Playlist,
   removeTrack,
   renamePlaylist,
   savePlaylists,
+  toggleLiked,
 } from './playlists';
 import { fadeInForTrack, resetVolumeState, setTargetVolume } from './volume';
 import { startAutoPause, stopAutoPause } from './autoPause';
 import {
+  announceDebugSample,
   announceWorkoutEnd,
   startWorkout,
   stopWorkout,
@@ -168,6 +181,39 @@ function fmtPace(secPerKm: number): string {
   const m = Math.floor(secPerKm / 60);
   const s = Math.floor(secPerKm % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function fmtTotalDuration(secs: number): string {
+  if (!isFinite(secs) || secs <= 0) return '';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (h > 0) return `${h}h ${m}min`;
+  return `${m}min`;
+}
+
+function sumDuration(list: Enriched[]): number {
+  let sum = 0;
+  for (const f of list) {
+    if (f.meta?.durationSec) sum += f.meta.durationSec;
+  }
+  return sum;
+}
+
+function groupByArtistSections(list: Enriched[]) {
+  const map = new Map<string, Enriched[]>();
+  for (const f of list) {
+    const key = (f.meta?.artist || 'Desconhecido').trim() || 'Desconhecido';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(f);
+  }
+  const sections = Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR', { sensitivity: 'base' }))
+    .map(([artist, data]) => ({
+      title: artist,
+      data,
+      artworkUri: data.find((d) => d.meta?.artworkUri)?.meta?.artworkUri,
+    }));
+  return sections;
 }
 
 async function extractPalette(uri?: string): Promise<Palette> {
@@ -336,6 +382,7 @@ function PlaylistRow({
   onPress: () => void;
   onLongPress: () => void;
 }) {
+  const liked = playlist.id === LIKED_PLAYLIST_ID;
   return (
     <Pressable
       onPress={onPress}
@@ -344,7 +391,11 @@ function PlaylistRow({
       style={({ pressed }) => [styles.plRow, pressed && { opacity: 0.55 }]}
     >
       <View style={styles.plIcon}>
-        <Ionicons name="musical-notes" size={20} color={theme.accent} />
+        <Ionicons
+          name={liked ? 'checkmark-circle' : 'musical-notes'}
+          size={22}
+          color={theme.accent}
+        />
       </View>
       <View style={styles.rowText}>
         <Text numberOfLines={1} style={styles.rowTitle}>
@@ -533,12 +584,14 @@ function NowPlaying({
   duration,
   shuffleOn,
   repeatMode,
+  liked,
   onToggle,
   onNext,
   onPrev,
   onShuffle,
   onRepeat,
   onSeek,
+  onToggleLike,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -549,12 +602,14 @@ function NowPlaying({
   duration: number;
   shuffleOn: boolean;
   repeatMode: RepeatMode;
+  liked: boolean;
   onToggle: () => void;
   onNext: () => void;
   onPrev: () => void;
   onShuffle: () => void;
   onRepeat: () => void;
   onSeek: (pos: number) => void;
+  onToggleLike: () => void;
 }) {
   const pct = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
   const barW = SCREEN_W - spacing.xxl * 2;
@@ -636,6 +691,20 @@ function NowPlaying({
                 {current?.meta?.artist || 'Desconhecido'}
               </Text>
             </View>
+            <Pressable
+              hitSlop={12}
+              onPress={() => {
+                hapLight();
+                onToggleLike();
+              }}
+              style={styles.npLikeBtn}
+            >
+              <Ionicons
+                name={liked ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                size={30}
+                color={liked ? theme.accent : 'rgba(255,255,255,0.75)'}
+              />
+            </Pressable>
           </View>
 
           <View style={styles.npProgressWrap}>
@@ -752,6 +821,8 @@ export default function App() {
   const [workoutStats, setWorkoutStats] = useState<WorkoutStats | null>(null);
   const [shuffleOn, setShuffleOn] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.Queue);
+  const [groupByArtist, setGroupByArtist] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -765,6 +836,30 @@ export default function App() {
   const persistPlaylists = useCallback((next: Playlist[]) => {
     setPlaylists(next);
     savePlaylists(next).catch(() => {});
+  }, []);
+
+  const toggleGroupByArtist = useCallback(() => {
+    hapLight();
+    setGroupByArtist((prev) => {
+      const next = !prev;
+      saveGroupByArtist(next).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const softReload = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const list = await listMp3s();
+      const existing = filesByIdRef.current;
+      const merged: Enriched[] = list.map((f) => existing.get(f.id) ?? f);
+      filesByIdRef.current = new Map(merged.map((f) => [f.id, f]));
+      setFiles(merged);
+      const pls = await loadPlaylists();
+      setPlaylists(pls);
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
 
   const enrich = useCallback(async (list: Mp3[]) => {
@@ -830,6 +925,8 @@ export default function App() {
       setFiles(list);
       const pls = await loadPlaylists();
       setPlaylists(pls);
+      const grouped = await loadGroupByArtist();
+      setGroupByArtist(grouped);
       if (list.length > 0) {
         await TrackPlayer.reset();
         await TrackPlayer.add(toTracks(list));
@@ -1009,6 +1106,14 @@ export default function App() {
     } catch {}
   };
 
+  const handleToggleLike = () => {
+    if (!currentId) return;
+    const next = toggleLiked(playlists, currentId);
+    persistPlaylists(next);
+  };
+
+  const currentIsLiked = currentId ? isLiked(playlists, currentId) : false;
+
   const openAddToPlaylist = (track: Enriched) => {
     hapLight();
     setAddTarget(track);
@@ -1065,6 +1170,7 @@ export default function App() {
 
   const handlePlaylistLongPress = (pl: Playlist) => {
     hapLight();
+    if (pl.id === LIKED_PLAYLIST_ID) return;
     Alert.alert(pl.name, undefined, [
       {
         text: 'Renomear',
@@ -1124,17 +1230,39 @@ export default function App() {
 
   const openSongMenu = (song: Enriched, inPlaylistId?: string) => {
     hapLight();
-    const options: any[] = [
-      {
-        text: 'Adicionar a playlist',
-        onPress: () => openAddToPlaylist(song),
-      },
-    ];
+    const options: any[] = [];
     if (inPlaylistId) {
+      options.push({
+        text: 'Mover para o topo',
+        onPress: () => {
+          const next = playlists.map((p) =>
+            p.id === inPlaylistId ? moveTrackToTop(p, song.id) : p
+          );
+          persistPlaylists(next);
+        },
+      });
+      options.push({
+        text: 'Mover para o final',
+        onPress: () => {
+          const next = playlists.map((p) =>
+            p.id === inPlaylistId ? moveTrackToEnd(p, song.id) : p
+          );
+          persistPlaylists(next);
+        },
+      });
+      options.push({
+        text: 'Adicionar a outra playlist',
+        onPress: () => openAddToPlaylist(song),
+      });
       options.push({
         text: 'Remover da playlist',
         style: 'destructive',
         onPress: () => removeFromPlaylist(inPlaylistId, song.id),
+      });
+    } else {
+      options.push({
+        text: 'Adicionar a playlist',
+        onPress: () => openAddToPlaylist(song),
       });
     }
     options.push({ text: 'Cancelar', style: 'cancel' });
@@ -1252,7 +1380,13 @@ export default function App() {
                 <Ionicons name="chevron-back" size={22} color={theme.text} />
               </Pressable>
               <View style={styles.headerCenter}>
-                <Text style={styles.headerKicker}>PLAYLIST</Text>
+                <Text style={styles.headerKicker}>
+                  PLAYLIST · {viewingPlaylistSongs.length}{' '}
+                  {viewingPlaylistSongs.length === 1 ? 'musica' : 'musicas'}
+                  {sumDuration(viewingPlaylistSongs) > 0
+                    ? ` · ${fmtTotalDuration(sumDuration(viewingPlaylistSongs))}`
+                    : ''}
+                </Text>
                 <Text numberOfLines={1} style={styles.headerTitle}>
                   {viewingPlaylist.name}
                 </Text>
@@ -1297,6 +1431,13 @@ export default function App() {
                   paddingBottom: hasCurrent ? 120 : 24,
                   paddingTop: spacing.sm,
                 }}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={softReload}
+                    tintColor={theme.accent}
+                  />
+                }
                 renderItem={({ item }) => (
                   <SongRow
                     item={item}
@@ -1323,13 +1464,17 @@ export default function App() {
               </View>
               <Pressable
                 hitSlop={10}
-                onPress={() => {
-                  hapLight();
-                  reload();
-                }}
-                style={styles.subtleIconBtn}
+                onPress={toggleGroupByArtist}
+                style={[
+                  styles.subtleIconBtn,
+                  groupByArtist && styles.subtleIconBtnActive,
+                ]}
               >
-                <Ionicons name="refresh" size={18} color={theme.textSoft} />
+                <Ionicons
+                  name="people-outline"
+                  size={18}
+                  color={groupByArtist ? theme.accent : theme.textSoft}
+                />
               </Pressable>
             </View>
 
@@ -1349,10 +1494,16 @@ export default function App() {
                     </View>
                     <View style={styles.workoutDivider} />
                     <View style={styles.workoutStat}>
-                      <Text style={styles.workoutStatVal}>
-                        {fmtPace(workoutStats.paceSecPerKm)}
-                      </Text>
-                      <Text style={styles.workoutStatUnit}>/km</Text>
+                      {workoutStats.distanceM < 100 ? (
+                        <Text style={styles.workoutStatWarm}>aquecendo</Text>
+                      ) : (
+                        <>
+                          <Text style={styles.workoutStatVal}>
+                            {fmtPace(workoutStats.paceSecPerKm)}
+                          </Text>
+                          <Text style={styles.workoutStatUnit}>/km</Text>
+                        </>
+                      )}
                     </View>
                     <View style={styles.workoutDivider} />
                     <View style={styles.workoutStat}>
@@ -1370,45 +1521,113 @@ export default function App() {
                   />
                 </Pressable>
               ) : (
-                <Pressable
-                  style={styles.workoutStartPill}
-                  onPress={handleStartWorkout}
-                >
-                  <Ionicons
-                    name="walk"
-                    size={16}
-                    color={theme.accent}
-                    style={{ marginRight: spacing.xs }}
-                  />
-                  <Text style={styles.workoutStartText}>Iniciar treino</Text>
-                </Pressable>
+                <View style={styles.workoutStartRow}>
+                  <Pressable
+                    style={styles.workoutStartPill}
+                    onPress={handleStartWorkout}
+                  >
+                    <Ionicons
+                      name="walk"
+                      size={16}
+                      color={theme.accent}
+                      style={{ marginRight: spacing.xs }}
+                    />
+                    <Text style={styles.workoutStartText}>Iniciar treino</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.debugPill}
+                    onPress={() => {
+                      hapLight();
+                      announceDebugSample().catch(() => {});
+                    }}
+                  >
+                    <Ionicons
+                      name="volume-high-outline"
+                      size={14}
+                      color={theme.textSoft}
+                    />
+                    <Text style={styles.debugPillText}>Testar voz</Text>
+                  </Pressable>
+                </View>
               )}
             </View>
 
             <SegmentedTabs tab={tab} onChange={setTab} />
 
             {tab === 'songs' ? (
-              <FlatList
-                data={files}
-                keyExtractor={(f) => f.id}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{
-                  paddingHorizontal: spacing.lg,
-                  paddingBottom: hasCurrent ? 120 : 24,
-                  paddingTop: spacing.xs,
-                }}
-                renderItem={({ item }) => (
-                  <SongRow
-                    item={item}
-                    active={item.id === currentId}
-                    onPress={() =>
-                      playFromContext({ kind: 'library' }, item.id)
-                    }
-                    onLongPress={() => openSongMenu(item)}
-                    onMenu={() => openSongMenu(item)}
-                  />
-                )}
-              />
+              groupByArtist ? (
+                <SectionList
+                  sections={groupByArtistSections(files)}
+                  keyExtractor={(f) => f.id}
+                  showsVerticalScrollIndicator={false}
+                  stickySectionHeadersEnabled={false}
+                  contentContainerStyle={{
+                    paddingHorizontal: spacing.lg,
+                    paddingBottom: hasCurrent ? 120 : 24,
+                    paddingTop: spacing.xs,
+                  }}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={softReload}
+                      tintColor={theme.accent}
+                    />
+                  }
+                  renderSectionHeader={({ section }) => (
+                    <View style={styles.sectionHeader}>
+                      <ArtworkThumb
+                        uri={(section as any).artworkUri}
+                        size={32}
+                        rounded={radius.sm}
+                      />
+                      <Text style={styles.sectionTitle}>{section.title}</Text>
+                      <Text style={styles.sectionCount}>
+                        {section.data.length}
+                      </Text>
+                    </View>
+                  )}
+                  renderItem={({ item }) => (
+                    <SongRow
+                      item={item}
+                      active={item.id === currentId}
+                      onPress={() =>
+                        playFromContext({ kind: 'library' }, item.id)
+                      }
+                      onLongPress={() => openAddToPlaylist(item)}
+                      onMenu={() => openAddToPlaylist(item)}
+                    />
+                  )}
+                />
+              ) : (
+                <FlatList
+                  data={files}
+                  keyExtractor={(f) => f.id}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{
+                    paddingHorizontal: spacing.lg,
+                    paddingBottom: hasCurrent ? 120 : 24,
+                    paddingTop: spacing.xs,
+                  }}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={softReload}
+                      tintColor={theme.accent}
+                    />
+                  }
+                  renderItem={({ item }) => (
+                    <SongRow
+                      item={item}
+                      active={item.id === currentId}
+                      onPress={() =>
+                        playFromContext({ kind: 'library' }, item.id)
+                      }
+                      onLongPress={() => openAddToPlaylist(item)}
+                      onMenu={() => openAddToPlaylist(item)}
+                    />
+                  )}
+                />
+              )
             ) : (
               <>
                 <Pressable
@@ -1494,12 +1713,14 @@ export default function App() {
         duration={progress.duration}
         shuffleOn={shuffleOn}
         repeatMode={repeatMode}
+        liked={currentIsLiked}
         onToggle={togglePlay}
         onNext={next}
         onPrev={prev}
         onShuffle={shuffle}
         onRepeat={cycleRepeat}
         onSeek={seek}
+        onToggleLike={handleToggleLike}
       />
 
       <AddToPlaylistSheet
@@ -1593,6 +1814,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  subtleIconBtnActive: {
+    backgroundColor: theme.accentSoft,
+  },
 
   // Header bar (playlist detail)
   headerBar: {
@@ -1641,14 +1865,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
   },
+  workoutStartRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   workoutStartPill: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.accentSoft,
     paddingHorizontal: spacing.md,
     paddingVertical: 7,
     borderRadius: radius.full,
+  },
+  debugPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: theme.surfaceOverlay,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+  },
+  debugPillText: {
+    color: theme.textSoft,
+    fontFamily: ff,
+    fontSize: font.caption,
+    fontWeight: weight.medium,
   },
   workoutStartText: {
     color: theme.accent,
@@ -1693,6 +1936,13 @@ const styles = StyleSheet.create({
     fontFamily: ff,
     fontSize: font.tiny,
     fontWeight: weight.medium,
+  },
+  workoutStatWarm: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.caption,
+    fontWeight: weight.medium,
+    fontStyle: 'italic',
   },
   workoutDivider: {
     width: 1,
@@ -1768,6 +2018,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   artFallback: { alignItems: 'center', justifyContent: 'center' },
+
+  // Section header (group by artist)
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+    paddingHorizontal: spacing.xs,
+    gap: spacing.sm,
+  },
+  sectionTitle: {
+    flex: 1,
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.callout,
+    fontWeight: weight.semibold,
+    letterSpacing: -0.2,
+    marginLeft: spacing.sm,
+  },
+  sectionCount: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.small,
+    fontWeight: weight.medium,
+    fontVariant: ['tabular-nums'],
+  },
 
   // Playlist row
   plRow: {
@@ -1997,6 +2273,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.xxl,
     marginBottom: spacing.lg,
+  },
+  npLikeBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   npTitle: {
     color: theme.text,

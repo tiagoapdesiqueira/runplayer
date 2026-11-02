@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const KEY_RESUME = 'runplayer.resume.v1';
+const KEY_GROUP_BY_ARTIST = 'runplayer.groupByArtist.v1';
 
 export interface ResumeState {
   trackId: string;
@@ -29,4 +30,18 @@ export async function clearResume(): Promise<void> {
   try {
     await AsyncStorage.removeItem(KEY_RESUME);
   } catch {}
+}
+
+export async function saveGroupByArtist(enabled: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_GROUP_BY_ARTIST, enabled ? '1' : '0');
+  } catch {}
+}
+
+export async function loadGroupByArtist(): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_GROUP_BY_ARTIST);
+    return raw === '1';
+  } catch {}
+  return false;
 }

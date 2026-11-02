@@ -5,6 +5,7 @@ export interface Metadata {
   artist?: string;
   artworkUri?: string;
   gainDb?: number;
+  durationSec?: number;
 }
 
 const CACHE_DIR = (FileSystem.cacheDirectory ?? '') + 'artwork/';
@@ -175,6 +176,92 @@ function parseGainDb(value: string): number | undefined {
   return Math.max(-20, Math.min(20, n));
 }
 
+const MPEG1_L3_BITRATE = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+const MPEG2_L3_BITRATE = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+const SAMPLE_RATES: Record<number, number[]> = {
+  3: [44100, 48000, 32000],
+  2: [22050, 24000, 16000],
+  0: [11025, 12000, 8000],
+};
+
+function readUint32BENoShift(b: Uint8Array, off: number): number {
+  return b[off] * 0x1000000 + ((b[off + 1] << 16) | (b[off + 2] << 8) | b[off + 3]);
+}
+
+function parseMp3Duration(bytes: Uint8Array, searchStart: number, audioSize: number): number {
+  const limit = Math.min(bytes.length - 4, searchStart + 2048);
+  for (let i = searchStart; i < limit; i++) {
+    if (bytes[i] !== 0xff) continue;
+    if ((bytes[i + 1] & 0xe0) !== 0xe0) continue;
+    const version = (bytes[i + 1] >> 3) & 0x03;
+    const layer = (bytes[i + 1] >> 1) & 0x03;
+    const bitrateIdx = (bytes[i + 2] >> 4) & 0x0f;
+    const sampleRateIdx = (bytes[i + 2] >> 2) & 0x03;
+    if (layer !== 1) continue;
+    if (bitrateIdx === 0 || bitrateIdx === 15) continue;
+    if (sampleRateIdx === 3) continue;
+    if (version === 1) continue;
+    const channelMode = (bytes[i + 3] >> 6) & 0x03;
+    const bitrateTable = version === 3 ? MPEG1_L3_BITRATE : MPEG2_L3_BITRATE;
+    const bitrate = bitrateTable[bitrateIdx] * 1000;
+    const sampleRate = SAMPLE_RATES[version]?.[sampleRateIdx];
+    if (!bitrate || !sampleRate) continue;
+    const samplesPerFrame = version === 3 ? 1152 : 576;
+
+    const sideInfoLen =
+      version === 3
+        ? channelMode === 3
+          ? 17
+          : 32
+        : channelMode === 3
+        ? 9
+        : 17;
+    const xingOff = i + 4 + sideInfoLen;
+    if (xingOff + 12 < bytes.length) {
+      const tag =
+        String.fromCharCode(bytes[xingOff]) +
+        String.fromCharCode(bytes[xingOff + 1]) +
+        String.fromCharCode(bytes[xingOff + 2]) +
+        String.fromCharCode(bytes[xingOff + 3]);
+      if (tag === 'Xing' || tag === 'Info') {
+        const flags = readUint32BENoShift(bytes, xingOff + 4);
+        if (flags & 1) {
+          const totalFrames = readUint32BENoShift(bytes, xingOff + 8);
+          if (totalFrames > 0 && totalFrames < 1e8) {
+            return (totalFrames * samplesPerFrame) / sampleRate;
+          }
+        }
+      }
+    }
+
+    return (audioSize * 8) / bitrate;
+  }
+  return 0;
+}
+
+async function readDuration(
+  uri: string,
+  idTagSize: number
+): Promise<number | undefined> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri, { size: true });
+    const fileSize = info.exists && 'size' in info ? (info.size as number) : 0;
+    if (!fileSize) return;
+    const audioStart = 10 + idTagSize;
+    const readLen = 4096;
+    const b64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+      length: readLen,
+      position: audioStart,
+    });
+    const bytes = base64ToBytes(b64);
+    const audioSize = Math.max(0, fileSize - audioStart);
+    const dur = parseMp3Duration(bytes, 0, audioSize);
+    if (dur > 0 && dur < 36000) return dur;
+  } catch {}
+  return;
+}
+
 async function parseApic(
   bytes: Uint8Array,
   start: number,
@@ -257,6 +344,10 @@ export async function readId3(uri: string, trackKey: string): Promise<Metadata> 
 
     if (id === 'TIT2') {
       result.title = decodeText(bytes, frameStart, frameEnd);
+    } else if (id === 'TLEN') {
+      const txt = decodeText(bytes, frameStart, frameEnd);
+      const ms = parseInt(txt, 10);
+      if (isFinite(ms) && ms > 0) result.durationSec = ms / 1000;
     } else if (id === 'TPE1') {
       result.artist = decodeText(bytes, frameStart, frameEnd);
     } else if (id === 'TXXX') {
@@ -278,6 +369,11 @@ export async function readId3(uri: string, trackKey: string): Promise<Metadata> 
     }
 
     pos = frameEnd;
+  }
+
+  if (result.durationSec == null) {
+    const d = await readDuration(uri, tagSize);
+    if (d) result.durationSec = d;
   }
 
   return result;
