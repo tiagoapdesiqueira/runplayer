@@ -31,32 +31,35 @@ let bpmTimer: ReturnType<typeof setInterval> | null = null;
 let listeners: Set<Listener> = new Set();
 let preferredVoice: string | null = null;
 
+function scoreVoice(v: any): number {
+  const id = String(v.identifier || '').toLowerCase();
+  const quality = String(v.quality || '').toLowerCase();
+  let s = 0;
+  if (id.includes('siri')) s += 30;
+  if (quality === 'premium' || id.includes('premium')) s += 25;
+  if (quality === 'enhanced' || id.includes('enhanced')) s += 15;
+  if (id.includes('neural')) s += 20;
+  if (id.includes('compact')) s -= 10;
+  return s;
+}
+
 async function selectVoice(): Promise<string | null> {
   try {
     const voices = await Speech.getAvailableVoicesAsync();
     const ptBr = voices.filter((v) =>
-      (v.language || '').toLowerCase().startsWith('pt-br')
+      (v.language || '').toLowerCase().startsWith('pt-br') ||
+      (v.language || '').toLowerCase().startsWith('pt_br')
     );
     if (ptBr.length === 0) return null;
-    const prefer = (predicate: (v: Speech.Voice) => boolean) =>
-      ptBr.find(predicate)?.identifier ?? null;
-    return (
-      prefer((v) => /siri/i.test(v.identifier || '') && /enhanced|premium/i.test(String((v as any).quality ?? ''))) ||
-      prefer((v) => /siri/i.test(v.identifier || '')) ||
-      prefer((v) => /premium/i.test(String((v as any).quality ?? ''))) ||
-      prefer((v) => /enhanced/i.test(String((v as any).quality ?? ''))) ||
-      ptBr[0]?.identifier ||
-      null
-    );
+    const sorted = [...ptBr].sort((a, b) => scoreVoice(b) - scoreVoice(a));
+    return sorted[0]?.identifier ?? null;
   } catch {
     return null;
   }
 }
 
 export async function warmupVoice(): Promise<void> {
-  if (!preferredVoice) {
-    preferredVoice = await selectVoice();
-  }
+  preferredVoice = await selectVoice();
 }
 
 function haversine(aLat: number, aLon: number, bLat: number, bLon: number): number {

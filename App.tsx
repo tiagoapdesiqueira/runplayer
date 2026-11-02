@@ -420,18 +420,22 @@ function MiniPlayer({
   current,
   playing,
   progress,
+  liked,
   onToggle,
   onNext,
   onPrev,
   onOpen,
+  onToggleLike,
 }: {
   current?: Enriched;
   playing: boolean;
   progress: number;
+  liked: boolean;
   onToggle: () => void;
   onNext: () => void;
   onPrev: () => void;
   onOpen: () => void;
+  onToggleLike: () => void;
 }) {
   if (!current) return null;
   const title = current.meta?.title || current.name;
@@ -453,6 +457,20 @@ function MiniPlayer({
           </View>
         </Pressable>
         <View style={styles.miniControls}>
+          <Pressable
+            hitSlop={10}
+            onPress={() => {
+              hapLight();
+              onToggleLike();
+            }}
+            style={styles.miniCtrlBtn}
+          >
+            <Ionicons
+              name={liked ? 'checkmark-circle' : 'checkmark-circle-outline'}
+              size={22}
+              color={liked ? theme.accent : theme.textSoft}
+            />
+          </Pressable>
           <Pressable
             hitSlop={10}
             onPress={() => {
@@ -822,6 +840,7 @@ export default function App() {
   const [shuffleOn, setShuffleOn] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.Queue);
   const [groupByArtist, setGroupByArtist] = useState(false);
+  const [expandedArtists, setExpandedArtists] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
 
   const didSetupRef = useRef(false);
@@ -843,6 +862,17 @@ export default function App() {
     setGroupByArtist((prev) => {
       const next = !prev;
       saveGroupByArtist(next).catch(() => {});
+      if (next) setExpandedArtists(new Set());
+      return next;
+    });
+  }, []);
+
+  const toggleArtistSection = useCallback((artist: string) => {
+    hapSelect();
+    setExpandedArtists((prev) => {
+      const next = new Set(prev);
+      if (next.has(artist)) next.delete(artist);
+      else next.add(artist);
       return next;
     });
   }, []);
@@ -1557,7 +1587,11 @@ export default function App() {
             {tab === 'songs' ? (
               groupByArtist ? (
                 <SectionList
-                  sections={groupByArtistSections(files)}
+                  sections={groupByArtistSections(files).map((s) => ({
+                    ...s,
+                    totalCount: s.data.length,
+                    data: expandedArtists.has(s.title) ? s.data : [],
+                  }))}
                   keyExtractor={(f) => f.id}
                   showsVerticalScrollIndicator={false}
                   stickySectionHeadersEnabled={false}
@@ -1573,29 +1607,51 @@ export default function App() {
                       tintColor={theme.accent}
                     />
                   }
-                  renderSectionHeader={({ section }) => (
-                    <View style={styles.sectionHeader}>
-                      <ArtworkThumb
-                        uri={(section as any).artworkUri}
-                        size={32}
-                        rounded={radius.sm}
-                      />
-                      <Text style={styles.sectionTitle}>{section.title}</Text>
-                      <Text style={styles.sectionCount}>
-                        {section.data.length}
-                      </Text>
-                    </View>
-                  )}
+                  renderSectionHeader={({ section }) => {
+                    const isOpen = expandedArtists.has(section.title);
+                    const count =
+                      (section as any).totalCount ?? section.data.length;
+                    return (
+                      <Pressable
+                        onPress={() => toggleArtistSection(section.title)}
+                        style={({ pressed }) => [
+                          styles.sectionHeader,
+                          pressed && { opacity: 0.6 },
+                        ]}
+                      >
+                        <ArtworkThumb
+                          uri={(section as any).artworkUri}
+                          size={36}
+                          rounded={radius.sm}
+                        />
+                        <Text
+                          numberOfLines={1}
+                          style={styles.sectionTitle}
+                        >
+                          {section.title}
+                        </Text>
+                        <Text style={styles.sectionCount}>{count}</Text>
+                        <Ionicons
+                          name={isOpen ? 'chevron-up' : 'chevron-down'}
+                          size={16}
+                          color={theme.textMuted}
+                          style={{ marginLeft: spacing.sm }}
+                        />
+                      </Pressable>
+                    );
+                  }}
                   renderItem={({ item }) => (
-                    <SongRow
-                      item={item}
-                      active={item.id === currentId}
-                      onPress={() =>
-                        playFromContext({ kind: 'library' }, item.id)
-                      }
-                      onLongPress={() => openAddToPlaylist(item)}
-                      onMenu={() => openAddToPlaylist(item)}
-                    />
+                    <View style={styles.sectionItem}>
+                      <SongRow
+                        item={item}
+                        active={item.id === currentId}
+                        onPress={() =>
+                          playFromContext({ kind: 'library' }, item.id)
+                        }
+                        onLongPress={() => openAddToPlaylist(item)}
+                        onMenu={() => openAddToPlaylist(item)}
+                      />
+                    </View>
                   )}
                 />
               ) : (
@@ -1694,6 +1750,7 @@ export default function App() {
         progress={
           progress.duration > 0 ? progress.position / progress.duration : 0
         }
+        liked={currentIsLiked}
         onToggle={togglePlay}
         onNext={next}
         onPrev={prev}
@@ -1701,6 +1758,7 @@ export default function App() {
           hapLight();
           setNowPlayingOpen(true);
         }}
+        onToggleLike={handleToggleLike}
       />
 
       <NowPlaying
@@ -2044,6 +2102,9 @@ const styles = StyleSheet.create({
     fontWeight: weight.medium,
     fontVariant: ['tabular-nums'],
   },
+  sectionItem: {
+    paddingLeft: spacing.lg,
+  },
 
   // Playlist row
   plRow: {
@@ -2126,7 +2187,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   miniCtrlBtn: {
-    width: 36,
+    width: 32,
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
