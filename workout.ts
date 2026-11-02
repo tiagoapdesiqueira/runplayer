@@ -211,7 +211,7 @@ export function isWorkoutActive(): boolean {
   return watcher != null;
 }
 
-export async function announceDebugSample() {
+export async function announceDebugSample(): Promise<string> {
   await warmupVoice();
   const bpm = await getLatestBpm(300);
   const parts: string[] = [
@@ -224,6 +224,25 @@ export async function announceDebugSample() {
     parts.push('Batimentos 160.');
   }
   speak(parts.join(' '));
+  return preferredVoice ?? '(nenhuma voz selecionada)';
+}
+
+export async function listPtBrVoices(): Promise<string[]> {
+  try {
+    const voices = await Speech.getAvailableVoicesAsync();
+    return voices
+      .filter(
+        (v) =>
+          (v.language || '').toLowerCase().startsWith('pt-br') ||
+          (v.language || '').toLowerCase().startsWith('pt_br')
+      )
+      .map(
+        (v) =>
+          `${v.name || v.identifier} (${(v as any).quality ?? 'default'})`
+      );
+  } catch {
+    return [];
+  }
 }
 
 export function announceWorkoutEnd() {

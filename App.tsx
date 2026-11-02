@@ -68,6 +68,7 @@ import { startAutoPause, stopAutoPause } from './autoPause';
 import {
   announceDebugSample,
   announceWorkoutEnd,
+  listPtBrVoices,
   startWorkout,
   stopWorkout,
   WorkoutStats,
@@ -1566,9 +1567,16 @@ export default function App() {
                   </Pressable>
                   <Pressable
                     style={styles.debugPill}
-                    onPress={() => {
+                    onPress={async () => {
                       hapLight();
-                      announceDebugSample().catch(() => {});
+                      const voiceId = await announceDebugSample().catch(
+                        () => '(erro)'
+                      );
+                      const voices = await listPtBrVoices().catch(() => []);
+                      Alert.alert(
+                        'Voz em uso',
+                        `Selecionada:\n${voiceId}\n\nDisponiveis pt-BR:\n${voices.join('\n') || '(nenhuma)'}`
+                      );
                     }}
                   >
                     <Ionicons
