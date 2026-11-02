@@ -1049,6 +1049,7 @@ export default function App() {
 
   const toggleGroupByArtist = useCallback(() => {
     hapLight();
+    setTab('songs');
     setGroupByArtist((prev) => {
       const next = !prev;
       saveGroupByArtist(next).catch(() => {});
@@ -1735,6 +1736,20 @@ export default function App() {
               </View>
               <Pressable
                 hitSlop={10}
+                onPress={() => {
+                  hapLight();
+                  setHistoryOpen(true);
+                }}
+                style={styles.subtleIconBtn}
+              >
+                <Ionicons
+                  name="time-outline"
+                  size={18}
+                  color={theme.textSoft}
+                />
+              </Pressable>
+              <Pressable
+                hitSlop={10}
                 onPress={toggleGroupByArtist}
                 style={[
                   styles.subtleIconBtn,
@@ -1794,21 +1809,6 @@ export default function App() {
                   <Text style={styles.workoutStartText}>Iniciar treino</Text>
                 </Pressable>
               )}
-              <Pressable
-                style={[styles.historyPill, { flex: 1 }]}
-                onPress={() => {
-                  hapLight();
-                  setHistoryOpen(true);
-                }}
-              >
-                <Ionicons
-                  name="time-outline"
-                  size={16}
-                  color={theme.textSoft}
-                  style={{ marginRight: spacing.xs }}
-                />
-                <Text style={styles.historyPillText}>Historico</Text>
-              </Pressable>
             </View>
 
             <SegmentedTabs tab={tab} onChange={setTab} />
