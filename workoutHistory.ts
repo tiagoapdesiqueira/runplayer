@@ -68,3 +68,50 @@ export async function deleteWorkout(id: string): Promise<WorkoutEntry[]> {
   await saveWorkouts(next);
   return next;
 }
+
+export async function seedFakeWorkouts(): Promise<WorkoutEntry[]> {
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const HOUR = 60 * 60 * 1000;
+  const MIN = 60 * 1000;
+
+  const fakes: WorkoutEntry[] = [
+    {
+      id: 'seed-1',
+      startTime: now - 2 * HOUR,
+      endTime: now - 2 * HOUR + 19 * MIN,
+      distanceM: 3520,
+      paceSecPerKm: 5 * 60 + 24,
+    },
+    {
+      id: 'seed-2',
+      startTime: now - DAY - 13 * HOUR,
+      endTime: now - DAY - 13 * HOUR + 27 * MIN,
+      distanceM: 5180,
+      paceSecPerKm: 5 * 60 + 12,
+    },
+    {
+      id: 'seed-3',
+      startTime: now - 3 * DAY - 11 * HOUR,
+      endTime: now - 3 * DAY - 11 * HOUR + 23 * MIN,
+      distanceM: 4080,
+      paceSecPerKm: 5 * 60 + 38,
+    },
+    {
+      id: 'seed-4',
+      startTime: now - 7 * DAY - 14 * HOUR,
+      endTime: now - 7 * DAY - 14 * HOUR + 45 * MIN,
+      distanceM: 8520,
+      paceSecPerKm: 5 * 60 + 18,
+    },
+    {
+      id: 'seed-5',
+      startTime: now - 14 * DAY - 12 * HOUR,
+      endTime: now - 14 * DAY - 12 * HOUR + 12 * MIN,
+      distanceM: 2100,
+      paceSecPerKm: 6 * 60 + 2,
+    },
+  ];
+  await saveWorkouts(fakes);
+  return fakes;
+}

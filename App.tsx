@@ -34,8 +34,10 @@ import TrackPlayer, {
 
 import { readId3, Metadata } from './metadata';
 import {
+  hasSeededWorkouts,
   loadGroupByArtist,
   loadResume,
+  markWorkoutsSeeded,
   saveGroupByArtist,
   saveResume,
 } from './storage';
@@ -75,6 +77,7 @@ import {
   addWorkout,
   deleteWorkout,
   loadWorkouts,
+  seedFakeWorkouts,
   WorkoutEntry,
 } from './workoutHistory';
 import { requestHeartRateAuth } from './healthkit';
@@ -1091,7 +1094,11 @@ export default function App() {
       setPlaylists(pls);
       const grouped = await loadGroupByArtist();
       setGroupByArtist(grouped);
-      const hist = await loadWorkouts();
+      let hist = await loadWorkouts();
+      if (hist.length === 0 && !(await hasSeededWorkouts())) {
+        hist = await seedFakeWorkouts();
+        await markWorkoutsSeeded();
+      }
       setWorkoutHistory(hist);
       if (list.length > 0) {
         await TrackPlayer.reset();

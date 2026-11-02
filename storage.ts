@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const KEY_RESUME = 'runplayer.resume.v1';
 const KEY_GROUP_BY_ARTIST = 'runplayer.groupByArtist.v1';
+const KEY_WORKOUTS_SEEDED = 'runplayer.workoutsSeeded.v1';
 
 export interface ResumeState {
   trackId: string;
@@ -44,4 +45,18 @@ export async function loadGroupByArtist(): Promise<boolean> {
     return raw === '1';
   } catch {}
   return false;
+}
+
+export async function hasSeededWorkouts(): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_WORKOUTS_SEEDED);
+    return raw === '1';
+  } catch {}
+  return false;
+}
+
+export async function markWorkoutsSeeded(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_WORKOUTS_SEEDED, '1');
+  } catch {}
 }
