@@ -487,6 +487,20 @@ function MiniPlayer({
   const artist = current.meta?.artist;
   return (
     <View style={styles.miniWrap}>
+      <Pressable
+        style={styles.miniProgressHit}
+        onPress={(e) => {
+          if (duration <= 0) return;
+          const w = SCREEN_W - spacing.md * 2;
+          const x = Math.max(0, Math.min(w, e.nativeEvent.locationX));
+          hapSelect();
+          onSeek((x / w) * duration);
+        }}
+      >
+        <View style={styles.miniProgressBg}>
+          <View style={[styles.miniProgressFill, { width: `${progress * 100}%` }]} />
+        </View>
+      </Pressable>
       <View style={styles.miniCard}>
         <Pressable style={styles.miniTap} onPress={onOpen}>
           <ArtworkThumb uri={current.meta?.artworkUri} size={40} />
@@ -552,20 +566,6 @@ function MiniPlayer({
           </Pressable>
         </View>
       </View>
-      <Pressable
-        style={styles.miniProgressHit}
-        onPress={(e) => {
-          if (duration <= 0) return;
-          const w = SCREEN_W - spacing.md * 2;
-          const x = Math.max(0, Math.min(w, e.nativeEvent.locationX));
-          hapSelect();
-          onSeek((x / w) * duration);
-        }}
-      >
-        <View style={styles.miniProgressBg}>
-          <View style={[styles.miniProgressFill, { width: `${progress * 100}%` }]} />
-        </View>
-      </Pressable>
     </View>
   );
 }
@@ -778,15 +778,17 @@ function NowPlaying({
   onSeek: (pos: number) => void;
   onToggleLike: () => void;
 }) {
-  const pct = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
-  const barW = SCREEN_W - spacing.xxl * 2;
+  const [barW, setBarW] = useState(SCREEN_W - spacing.xxl * 2);
+  const [scrubbing, setScrubbing] = useState(false);
+  const [scrubPos, setScrubPos] = useState(0);
 
-  const handleSeekBar = (locationX: number) => {
-    if (duration <= 0) return;
-    const clamped = Math.max(0, Math.min(barW, locationX));
-    const next = (clamped / barW) * duration;
-    hapSelect();
-    onSeek(next);
+  const displayPos = scrubbing ? scrubPos : position;
+  const pct = duration > 0 ? Math.min(1, Math.max(0, displayPos / duration)) : 0;
+
+  const posFromX = (x: number): number => {
+    if (duration <= 0 || barW <= 0) return 0;
+    const clamped = Math.max(0, Math.min(barW, x));
+    return (clamped / barW) * duration;
   };
 
   const repeatIcon =
@@ -875,23 +877,41 @@ function NowPlaying({
           </View>
 
           <View style={styles.npProgressWrap}>
-            <Pressable
-              onPress={(e) => handleSeekBar(e.nativeEvent.locationX)}
+            <View
               style={styles.npProgressHit}
+              onLayout={(e) => setBarW(e.nativeEvent.layout.width)}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={(e) => {
+                hapSelect();
+                setScrubbing(true);
+                setScrubPos(posFromX(e.nativeEvent.locationX));
+              }}
+              onResponderMove={(e) => {
+                setScrubPos(posFromX(e.nativeEvent.locationX));
+              }}
+              onResponderRelease={(e) => {
+                const p = posFromX(e.nativeEvent.locationX);
+                setScrubPos(p);
+                onSeek(p);
+                setTimeout(() => setScrubbing(false), 250);
+              }}
+              onResponderTerminate={() => setScrubbing(false)}
             >
               <View style={styles.npProgressBg}>
                 <View style={[styles.npProgressFill, { width: `${pct * 100}%` }]} />
                 <View
                   style={[
                     styles.npProgressDot,
+                    scrubbing && styles.npProgressDotActive,
                     { left: `${pct * 100}%` },
                   ]}
                 />
               </View>
-            </Pressable>
+            </View>
             <View style={styles.npTimeRow}>
-              <Text style={styles.npTime}>{fmt(position)}</Text>
-              <Text style={styles.npTime}>-{fmt(Math.max(0, duration - position))}</Text>
+              <Text style={styles.npTime}>{fmt(displayPos)}</Text>
+              <Text style={styles.npTime}>-{fmt(Math.max(0, duration - displayPos))}</Text>
             </View>
           </View>
 
@@ -1678,20 +1698,6 @@ export default function App() {
               </View>
               <Pressable
                 hitSlop={10}
-                onPress={() => {
-                  hapLight();
-                  setHistoryOpen(true);
-                }}
-                style={styles.subtleIconBtn}
-              >
-                <Ionicons
-                  name="time-outline"
-                  size={18}
-                  color={theme.textSoft}
-                />
-              </Pressable>
-              <Pressable
-                hitSlop={10}
                 onPress={toggleGroupByArtist}
                 style={[
                   styles.subtleIconBtn,
@@ -1709,11 +1715,11 @@ export default function App() {
             <View style={styles.toolRow}>
               {workoutActive && workoutStats ? (
                 <Pressable
-                  style={styles.workoutChipPill}
+                  style={[styles.workoutChipPill, { flex: 1 }]}
                   onPress={handleStopWorkout}
                 >
                   <View style={styles.workoutLive} />
-                  <Text style={styles.workoutChipText}>
+                  <Text style={styles.workoutChipText} numberOfLines={1}>
                     <Text style={styles.workoutChipNum}>
                       {fmtKm(workoutStats.distanceM)}
                     </Text>
@@ -1739,7 +1745,7 @@ export default function App() {
                 </Pressable>
               ) : (
                 <Pressable
-                  style={styles.workoutStartPill}
+                  style={[styles.workoutStartPill, { flex: 1 }]}
                   onPress={handleStartWorkout}
                 >
                   <Ionicons
@@ -1751,6 +1757,21 @@ export default function App() {
                   <Text style={styles.workoutStartText}>Iniciar treino</Text>
                 </Pressable>
               )}
+              <Pressable
+                style={styles.historyPill}
+                onPress={() => {
+                  hapLight();
+                  setHistoryOpen(true);
+                }}
+              >
+                <Ionicons
+                  name="time-outline"
+                  size={16}
+                  color={theme.textSoft}
+                  style={{ marginRight: spacing.xs }}
+                />
+                <Text style={styles.historyPillText}>Historico</Text>
+              </Pressable>
             </View>
 
             <SegmentedTabs tab={tab} onChange={setTab} />
@@ -2100,22 +2121,36 @@ const styles = StyleSheet.create({
 
   // Tool row (workout control)
   toolRow: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-  },
-  workoutStartRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
   },
   workoutStartPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: theme.accentSoft,
     paddingHorizontal: spacing.md,
     paddingVertical: 7,
     borderRadius: radius.full,
+  },
+  historyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.surfaceOverlay,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+  },
+  historyPillText: {
+    color: theme.textSoft,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.semibold,
+    letterSpacing: 0.1,
   },
   debugPill: {
     flexDirection: 'row',
@@ -2140,9 +2175,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
   },
   workoutChipPill: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: theme.accentSoft,
     paddingHorizontal: spacing.md,
     paddingVertical: 7,
@@ -2397,16 +2432,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   miniProgressHit: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: -14,
-    paddingHorizontal: 0,
     paddingVertical: 10,
+    marginBottom: 2,
+    marginHorizontal: spacing.sm,
   },
   miniProgressBg: {
     height: 3,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 2,
     overflow: 'hidden',
   },
@@ -2658,6 +2690,13 @@ const styles = StyleSheet.create({
     backgroundColor: theme.text,
     top: -3.5,
     marginLeft: -5,
+  },
+  npProgressDotActive: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    top: -6.5,
+    marginLeft: -8,
   },
   npTimeRow: {
     flexDirection: 'row',
