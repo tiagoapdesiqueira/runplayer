@@ -16,6 +16,10 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DraggableFlatList, {
+  RenderItemParams,
+  ScaleDecorator,
+} from 'react-native-draggable-flatlist';
 import * as FileSystem from 'expo-file-system';
 import { useFonts } from 'expo-font';
 import * as Haptics from 'expo-haptics';
@@ -741,14 +745,79 @@ function HistorySheet({
   );
 }
 
+function NpProgressBar({
+  visible,
+  onSeek,
+}: {
+  visible: boolean;
+  onSeek: (pos: number) => void;
+}) {
+  const prog = useProgress(visible ? 250 : 2000);
+  const position = prog.position;
+  const duration = prog.duration;
+  const [barW, setBarW] = useState(SCREEN_W - spacing.xxl * 2);
+  const [scrubbing, setScrubbing] = useState(false);
+  const [scrubPos, setScrubPos] = useState(0);
+
+  const displayPos = scrubbing ? scrubPos : position;
+  const pct = duration > 0 ? Math.min(1, Math.max(0, displayPos / duration)) : 0;
+
+  const posFromX = (x: number): number => {
+    if (duration <= 0 || barW <= 0) return 0;
+    const clamped = Math.max(0, Math.min(barW, x));
+    return (clamped / barW) * duration;
+  };
+
+  return (
+    <View style={styles.npProgressWrap}>
+      <View
+        style={styles.npProgressHit}
+        onLayout={(e) => setBarW(e.nativeEvent.layout.width)}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(e) => {
+          hapSelect();
+          setScrubbing(true);
+          setScrubPos(posFromX(e.nativeEvent.locationX));
+        }}
+        onResponderMove={(e) => {
+          setScrubPos(posFromX(e.nativeEvent.locationX));
+        }}
+        onResponderRelease={(e) => {
+          const p = posFromX(e.nativeEvent.locationX);
+          setScrubPos(p);
+          onSeek(p);
+          setTimeout(() => setScrubbing(false), 400);
+        }}
+        onResponderTerminate={() => setScrubbing(false)}
+      >
+        <View style={styles.npProgressBg}>
+          <View style={[styles.npProgressFill, { width: `${pct * 100}%` }]} />
+          <View
+            style={[
+              styles.npProgressDot,
+              scrubbing && styles.npProgressDotActive,
+              { left: `${pct * 100}%` },
+            ]}
+          />
+        </View>
+      </View>
+      <View style={styles.npTimeRow}>
+        <Text style={styles.npTime}>{fmt(displayPos)}</Text>
+        <Text style={styles.npTime}>
+          -{fmt(Math.max(0, duration - displayPos))}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function NowPlaying({
   visible,
   onClose,
   current,
   palette,
   playing,
-  position,
-  duration,
   shuffleOn,
   repeatMode,
   liked,
@@ -765,8 +834,6 @@ function NowPlaying({
   current?: Enriched;
   palette: Palette;
   playing: boolean;
-  position: number;
-  duration: number;
   shuffleOn: boolean;
   repeatMode: RepeatMode;
   liked: boolean;
@@ -778,18 +845,6 @@ function NowPlaying({
   onSeek: (pos: number) => void;
   onToggleLike: () => void;
 }) {
-  const [barW, setBarW] = useState(SCREEN_W - spacing.xxl * 2);
-  const [scrubbing, setScrubbing] = useState(false);
-  const [scrubPos, setScrubPos] = useState(0);
-
-  const displayPos = scrubbing ? scrubPos : position;
-  const pct = duration > 0 ? Math.min(1, Math.max(0, displayPos / duration)) : 0;
-
-  const posFromX = (x: number): number => {
-    if (duration <= 0 || barW <= 0) return 0;
-    const clamped = Math.max(0, Math.min(barW, x));
-    return (clamped / barW) * duration;
-  };
 
   const repeatIcon =
     repeatMode === RepeatMode.Track ? 'repeat' : 'repeat';
@@ -876,44 +931,7 @@ function NowPlaying({
             </Pressable>
           </View>
 
-          <View style={styles.npProgressWrap}>
-            <View
-              style={styles.npProgressHit}
-              onLayout={(e) => setBarW(e.nativeEvent.layout.width)}
-              onStartShouldSetResponder={() => true}
-              onMoveShouldSetResponder={() => true}
-              onResponderGrant={(e) => {
-                hapSelect();
-                setScrubbing(true);
-                setScrubPos(posFromX(e.nativeEvent.locationX));
-              }}
-              onResponderMove={(e) => {
-                setScrubPos(posFromX(e.nativeEvent.locationX));
-              }}
-              onResponderRelease={(e) => {
-                const p = posFromX(e.nativeEvent.locationX);
-                setScrubPos(p);
-                onSeek(p);
-                setTimeout(() => setScrubbing(false), 250);
-              }}
-              onResponderTerminate={() => setScrubbing(false)}
-            >
-              <View style={styles.npProgressBg}>
-                <View style={[styles.npProgressFill, { width: `${pct * 100}%` }]} />
-                <View
-                  style={[
-                    styles.npProgressDot,
-                    scrubbing && styles.npProgressDotActive,
-                    { left: `${pct * 100}%` },
-                  ]}
-                />
-              </View>
-            </View>
-            <View style={styles.npTimeRow}>
-              <Text style={styles.npTime}>{fmt(displayPos)}</Text>
-              <Text style={styles.npTime}>-{fmt(Math.max(0, duration - displayPos))}</Text>
-            </View>
-          </View>
+          <NpProgressBar visible={visible} onSeek={onSeek} />
 
           <View style={styles.npControls}>
             <Pressable
@@ -1656,7 +1674,7 @@ export default function App() {
                 </Text>
               </View>
             ) : (
-              <FlatList
+              <DraggableFlatList
                 data={viewingPlaylistSongs}
                 keyExtractor={(f) => f.id}
                 showsVerticalScrollIndicator={false}
@@ -1672,19 +1690,38 @@ export default function App() {
                     tintColor={theme.accent}
                   />
                 }
-                renderItem={({ item }) => (
-                  <SongRow
-                    item={item}
-                    active={item.id === currentId}
-                    onPress={() =>
-                      playFromContext(
-                        { kind: 'playlist', id: viewingPlaylist.id },
-                        item.id
-                      )
-                    }
-                    onLongPress={() => openSongMenu(item, viewingPlaylist.id)}
-                    onMenu={() => openSongMenu(item, viewingPlaylist.id)}
-                  />
+                onDragEnd={({ data }) => {
+                  const newOrder = data.map((f) => f.id);
+                  const next = playlists.map((p) =>
+                    p.id === viewingPlaylist.id
+                      ? { ...p, trackIds: newOrder }
+                      : p
+                  );
+                  persistPlaylists(next);
+                  hapSelect();
+                }}
+                renderItem={({
+                  item,
+                  drag,
+                  isActive,
+                }: RenderItemParams<Enriched>) => (
+                  <ScaleDecorator>
+                    <SongRow
+                      item={item}
+                      active={item.id === currentId}
+                      onPress={() =>
+                        playFromContext(
+                          { kind: 'playlist', id: viewingPlaylist.id },
+                          item.id
+                        )
+                      }
+                      onLongPress={() => {
+                        hapMedium();
+                        drag();
+                      }}
+                      onMenu={() => openSongMenu(item, viewingPlaylist.id)}
+                    />
+                  </ScaleDecorator>
                 )}
               />
             )}
@@ -1758,7 +1795,7 @@ export default function App() {
                 </Pressable>
               )}
               <Pressable
-                style={styles.historyPill}
+                style={[styles.historyPill, { flex: 1 }]}
                 onPress={() => {
                   hapLight();
                   setHistoryOpen(true);
@@ -1870,7 +1907,6 @@ export default function App() {
                       onPress={() =>
                         playFromContext({ kind: 'library' }, item.id)
                       }
-                      onLongPress={() => openAddToPlaylist(item)}
                       onMenu={() => openAddToPlaylist(item)}
                     />
                   )}
@@ -1961,8 +1997,6 @@ export default function App() {
         current={current}
         palette={palette}
         playing={playing}
-        position={progress.position}
-        duration={progress.duration}
         shuffleOn={shuffleOn}
         repeatMode={repeatMode}
         liked={currentIsLiked}
@@ -2123,7 +2157,7 @@ const styles = StyleSheet.create({
   toolRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 2,
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
   },

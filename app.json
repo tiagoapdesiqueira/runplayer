@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "RunPlayer",
+    "name": "Run Player",
     "slug": "runplayer",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,7 +14,7 @@
         "UIBackgroundModes": ["audio", "location"],
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true,
-        "CFBundleDisplayName": "RunPlayer",
+        "CFBundleDisplayName": "Run Player",
         "NSLocationWhenInUseUsageDescription": "Usado para medir distancia e ritmo durante seus treinos.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Usado para medir distancia e ritmo mesmo com a tela bloqueada.",
         "NSLocationAlwaysUsageDescription": "Usado para medir distancia e ritmo mesmo com a tela bloqueada.",
