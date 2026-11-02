@@ -461,22 +461,26 @@ function MiniPlayer({
   current,
   playing,
   progress,
+  duration,
   liked,
   onToggle,
   onNext,
   onPrev,
   onOpen,
   onToggleLike,
+  onSeek,
 }: {
   current?: Enriched;
   playing: boolean;
   progress: number;
+  duration: number;
   liked: boolean;
   onToggle: () => void;
   onNext: () => void;
   onPrev: () => void;
   onOpen: () => void;
   onToggleLike: () => void;
+  onSeek: (pos: number) => void;
 }) {
   if (!current) return null;
   const title = current.meta?.title || current.name;
@@ -548,9 +552,20 @@ function MiniPlayer({
           </Pressable>
         </View>
       </View>
-      <View style={styles.miniProgressBg}>
-        <View style={[styles.miniProgressFill, { width: `${progress * 100}%` }]} />
-      </View>
+      <Pressable
+        style={styles.miniProgressHit}
+        onPress={(e) => {
+          if (duration <= 0) return;
+          const w = SCREEN_W - spacing.md * 2;
+          const x = Math.max(0, Math.min(w, e.nativeEvent.locationX));
+          hapSelect();
+          onSeek((x / w) * duration);
+        }}
+      >
+        <View style={styles.miniProgressBg}>
+          <View style={[styles.miniProgressFill, { width: `${progress * 100}%` }]} />
+        </View>
+      </Pressable>
     </View>
   );
 }
@@ -1094,11 +1109,7 @@ export default function App() {
       setPlaylists(pls);
       const grouped = await loadGroupByArtist();
       setGroupByArtist(grouped);
-      let hist = await loadWorkouts();
-      if (hist.length === 0 && !(await hasSeededWorkouts())) {
-        hist = await seedFakeWorkouts();
-        await markWorkoutsSeeded();
-      }
+      const hist = await loadWorkouts();
       setWorkoutHistory(hist);
       if (list.length > 0) {
         await TrackPlayer.reset();
@@ -1698,44 +1709,29 @@ export default function App() {
             <View style={styles.toolRow}>
               {workoutActive && workoutStats ? (
                 <Pressable
-                  style={styles.workoutCard}
+                  style={styles.workoutChipPill}
                   onPress={handleStopWorkout}
                 >
                   <View style={styles.workoutLive} />
-                  <View style={styles.workoutStats}>
-                    <View style={styles.workoutStat}>
-                      <Text style={styles.workoutStatVal}>
-                        {fmtKm(workoutStats.distanceM)}
-                      </Text>
-                      <Text style={styles.workoutStatUnit}>km</Text>
-                    </View>
-                    <View style={styles.workoutDivider} />
-                    <View style={styles.workoutStat}>
-                      {workoutStats.distanceM < 100 ? (
-                        <Text style={styles.workoutStatWarm}>aquecendo</Text>
-                      ) : (
-                        <>
-                          <Text style={styles.workoutStatVal}>
-                            {fmtPace(workoutStats.paceSecPerKm)}
-                          </Text>
-                          <Text style={styles.workoutStatUnit}>/km</Text>
-                        </>
-                      )}
-                    </View>
-                    {workoutStats.bpm != null && (
+                  <Text style={styles.workoutChipText}>
+                    <Text style={styles.workoutChipNum}>
+                      {fmtKm(workoutStats.distanceM)}
+                    </Text>
+                    <Text style={styles.workoutChipUnit}> km</Text>
+                    <Text style={styles.workoutChipSep}>  ·  </Text>
+                    {workoutStats.distanceM < 100 ? (
+                      <Text style={styles.workoutChipWarm}>aquecendo</Text>
+                    ) : (
                       <>
-                        <View style={styles.workoutDivider} />
-                        <View style={styles.workoutStat}>
-                          <Text style={styles.workoutStatVal}>
-                            {workoutStats.bpm}
-                          </Text>
-                          <Text style={styles.workoutStatUnit}>bpm</Text>
-                        </View>
+                        <Text style={styles.workoutChipNum}>
+                          {fmtPace(workoutStats.paceSecPerKm)}
+                        </Text>
+                        <Text style={styles.workoutChipUnit}> /km</Text>
                       </>
                     )}
-                  </View>
+                  </Text>
                   <Ionicons
-                    name="stop"
+                    name="close"
                     size={14}
                     color={theme.accent}
                     style={{ marginLeft: spacing.sm }}
@@ -1925,6 +1921,7 @@ export default function App() {
         progress={
           progress.duration > 0 ? progress.position / progress.duration : 0
         }
+        duration={progress.duration}
         liked={currentIsLiked}
         onToggle={togglePlay}
         onNext={next}
@@ -1934,6 +1931,7 @@ export default function App() {
           setNowPlayingOpen(true);
         }}
         onToggleLike={handleToggleLike}
+        onSeek={seek}
       />
 
       <NowPlaying
@@ -2141,19 +2139,42 @@ const styles = StyleSheet.create({
     fontWeight: weight.semibold,
     letterSpacing: 0.1,
   },
-  workoutCard: {
+  workoutChipPill: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.surface,
-    padding: spacing.md,
-    borderRadius: radius.md,
+    backgroundColor: theme.accentSoft,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: radius.full,
   },
   workoutLive: {
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: theme.accent,
-    marginRight: spacing.md,
+    marginRight: spacing.sm,
+  },
+  workoutChipText: {
+    color: theme.accent,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.semibold,
+    letterSpacing: 0.1,
+  },
+  workoutChipNum: {
+    fontVariant: ['tabular-nums'],
+  },
+  workoutChipUnit: {
+    opacity: 0.7,
+    fontWeight: weight.medium,
+  },
+  workoutChipSep: {
+    opacity: 0.5,
+  },
+  workoutChipWarm: {
+    fontStyle: 'italic',
+    opacity: 0.75,
   },
   workoutStats: {
     flex: 1,
@@ -2375,20 +2396,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  miniProgressBg: {
+  miniProgressHit: {
     position: 'absolute',
-    left: spacing.md,
-    right: spacing.md,
-    bottom: -4,
-    height: 2,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderBottomLeftRadius: 2,
-    borderBottomRightRadius: 2,
+    left: 0,
+    right: 0,
+    bottom: -14,
+    paddingHorizontal: 0,
+    paddingVertical: 10,
+  },
+  miniProgressBg: {
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 2,
+    overflow: 'hidden',
   },
   miniProgressFill: {
     height: '100%',
     backgroundColor: theme.accent,
-    borderBottomLeftRadius: 2,
+    borderRadius: 2,
   },
 
   // Sheet (modal)

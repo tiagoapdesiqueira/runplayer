@@ -31,36 +31,8 @@ let bpmTimer: ReturnType<typeof setInterval> | null = null;
 let listeners: Set<Listener> = new Set();
 let preferredVoice: string | null = null;
 
-function scoreVoice(v: any): number {
-  const id = String(v.identifier || '').toLowerCase();
-  const name = String(v.name || '').toLowerCase();
-  const quality = String(v.quality || '').toLowerCase();
-  let s = 0;
-  if (id.includes('eloquence')) s -= 50;
-  if (id.includes('siri') || name.includes('siri')) s += 40;
-  if (quality === 'premium' || id.includes('premium')) s += 30;
-  if (quality === 'enhanced' || id.includes('enhanced')) s += 20;
-  if (id.includes('neural')) s += 25;
-  if (id.includes('ttsbundle')) s += 10;
-  if (id.includes('compact')) s -= 2;
-  const preferredNames = ['luciana', 'felipe', 'joana', 'rafael'];
-  if (preferredNames.some((n) => name.includes(n) || id.includes(n))) s += 5;
-  return s;
-}
-
 async function selectVoice(): Promise<string | null> {
-  try {
-    const voices = await Speech.getAvailableVoicesAsync();
-    const ptBr = voices.filter((v) =>
-      (v.language || '').toLowerCase().startsWith('pt-br') ||
-      (v.language || '').toLowerCase().startsWith('pt_br')
-    );
-    if (ptBr.length === 0) return null;
-    const sorted = [...ptBr].sort((a, b) => scoreVoice(b) - scoreVoice(a));
-    return sorted[0]?.identifier ?? null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export async function warmupVoice(): Promise<void> {
@@ -98,7 +70,6 @@ function speak(msg: string) {
   try {
     Speech.speak(msg, {
       language: 'pt-BR',
-      voice: preferredVoice ?? undefined,
       rate: 0.98,
       pitch: 1.0,
     });
@@ -109,9 +80,6 @@ function announceKm(km: number) {
   const paceLabel = formatPaceLabel(stats.paceSecPerKm);
   const parts: string[] = [`Quilometro ${km}.`];
   if (paceLabel) parts.push(`Ritmo ${paceLabel} por quilometro.`);
-  if (stats.bpm != null && stats.bpm > 30 && stats.bpm < 230) {
-    parts.push(`Batimentos ${stats.bpm}.`);
-  }
   speak(parts.join(' '));
 }
 

@@ -26,16 +26,21 @@ export async function loadWorkouts(): Promise<WorkoutEntry[]> {
     const raw = await FileSystem.readAsStringAsync(FILE);
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const cleaned = parsed
       .filter(
         (e) =>
           e &&
           typeof e.id === 'string' &&
+          !e.id.startsWith('seed-') &&
           typeof e.startTime === 'number' &&
           typeof e.endTime === 'number' &&
           typeof e.distanceM === 'number'
       )
       .sort((a, b) => b.startTime - a.startTime);
+    if (cleaned.length !== parsed.length) {
+      await saveWorkouts(cleaned);
+    }
+    return cleaned;
   } catch {
     return [];
   }
