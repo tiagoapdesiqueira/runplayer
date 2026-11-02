@@ -1078,10 +1078,14 @@ export default function App() {
       setFiles(merged);
       const pls = await loadPlaylists();
       setPlaylists(pls);
+      const newOnes = list.filter((f) => !existing.get(f.id)?.meta);
+      if (newOnes.length > 0) {
+        enrich(newOnes);
+      }
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [enrich]);
 
   const enrich = useCallback(async (list: Mp3[]) => {
     for (const file of list) {
