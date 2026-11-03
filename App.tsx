@@ -41,10 +41,13 @@ import {
   hasSeededWorkouts,
   loadGroupByArtist,
   loadMetaCache,
+  loadRecentlyPlayed,
   loadResume,
   markWorkoutsSeeded,
+  pushRecentlyPlayed,
   saveGroupByArtist,
   saveMetaCache,
+  saveRecentlyPlayed,
   saveResume,
 } from './storage';
 import {
@@ -592,6 +595,7 @@ function MiniPlayer({
 function AddToPlaylistSheet({
   visible,
   track,
+  subtitleOverride,
   playlists,
   onClose,
   onAdd,
@@ -599,6 +603,7 @@ function AddToPlaylistSheet({
 }: {
   visible: boolean;
   track?: Enriched;
+  subtitleOverride?: string;
   playlists: Playlist[];
   onClose: () => void;
   onAdd: (playlistId: string) => void;
@@ -616,7 +621,7 @@ function AddToPlaylistSheet({
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>Adicionar a playlist</Text>
           <Text numberOfLines={1} style={styles.sheetSub}>
-            {track?.meta?.title || track?.name || ''}
+            {subtitleOverride ?? (track?.meta?.title || track?.name || '')}
           </Text>
 
           <View style={styles.sheetList}>
@@ -1049,6 +1054,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [recentlyPlayed, setRecentlyPlayed] = useState<string[]>([]);
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -1191,6 +1198,8 @@ export default function App() {
       setGroupByArtist(grouped);
       const hist = await loadWorkouts();
       setWorkoutHistory(hist);
+      const recent = await loadRecentlyPlayed();
+      setRecentlyPlayed(recent);
       if (enriched.length > 0) {
         await TrackPlayer.reset();
         await TrackPlayer.add(toTracks(enriched));
@@ -1216,6 +1225,18 @@ export default function App() {
     [currentId, files]
   );
   const current = currentIndex >= 0 ? files[currentIndex] : undefined;
+
+  const sortedFiles = useMemo(() => {
+    if (recentlyPlayed.length === 0) return files;
+    const recentSet = new Set(recentlyPlayed);
+    const inRecent: Enriched[] = [];
+    for (const id of recentlyPlayed) {
+      const f = files.find((x) => x.id === id);
+      if (f) inRecent.push(f);
+    }
+    const rest = files.filter((f) => !recentSet.has(f.id));
+    return [...inRecent, ...rest];
+  }, [files, recentlyPlayed]);
 
   useEffect(() => {
     (async () => {
@@ -1269,6 +1290,11 @@ export default function App() {
           if (t?.id) {
             const id = String(t.id);
             setCurrentId(id);
+            setRecentlyPlayed((prev) => {
+              const next = pushRecentlyPlayed(prev, id);
+              saveRecentlyPlayed(next).catch(() => {});
+              return next;
+            });
             const file = filesByIdRef.current.get(id);
             const gain = file?.meta?.gainDb;
             if (ev.index !== ev.lastIndex && ev.lastIndex != null) {
@@ -1494,10 +1520,7 @@ export default function App() {
 
   const deleteSongFile = async (song: Enriched) => {
     try {
-      try {
-        await TrackPlayer.reset();
-        resetVolumeState();
-      } catch {}
+      const isCurrent = currentId === song.id;
       try {
         await FileSystem.deleteAsync(song.uri, { idempotent: true });
       } catch {}
@@ -1508,14 +1531,16 @@ export default function App() {
       const nextFiles = files.filter((f) => f.id !== song.id);
       filesByIdRef.current.delete(song.id);
       setFiles(nextFiles);
-      if (currentId === song.id) {
+      try {
+        const queue = await TrackPlayer.getQueue();
+        const idxInQueue = queue.findIndex((t) => String(t.id) === song.id);
+        if (idxInQueue >= 0) {
+          await TrackPlayer.remove([idxInQueue]);
+        }
+      } catch {}
+      if (isCurrent) {
         setCurrentId(null);
         setPlaying(false);
-      }
-      if (nextFiles.length > 0) {
-        try {
-          await TrackPlayer.add(toTracks(nextFiles));
-        } catch {}
       }
     } catch {}
   };
@@ -1545,11 +1570,8 @@ export default function App() {
 
   const deleteMultipleSongs = async (ids: string[]) => {
     try {
-      try {
-        await TrackPlayer.reset();
-        resetVolumeState();
-      } catch {}
       const idSet = new Set(ids);
+      const currentWillBeDeleted = !!(currentId && idSet.has(currentId));
       for (const f of files) {
         if (!idSet.has(f.id)) continue;
         try {
@@ -1566,16 +1588,61 @@ export default function App() {
       const nextFiles = files.filter((f) => !idSet.has(f.id));
       filesByIdRef.current = new Map(nextFiles.map((f) => [f.id, f]));
       setFiles(nextFiles);
-      if (currentId && idSet.has(currentId)) {
+      try {
+        const queue = await TrackPlayer.getQueue();
+        const toRemove: number[] = [];
+        queue.forEach((t, i) => {
+          if (idSet.has(String(t.id))) toRemove.push(i);
+        });
+        if (toRemove.length > 0) {
+          await TrackPlayer.remove(toRemove);
+        }
+      } catch {}
+      if (currentWillBeDeleted) {
         setCurrentId(null);
         setPlaying(false);
       }
-      if (nextFiles.length > 0) {
-        try {
-          await TrackPlayer.add(toTracks(nextFiles));
-        } catch {}
-      }
     } catch {}
+  };
+
+  const bulkAddToPlaylist = (playlistId: string) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const next = playlists.map((p) => {
+      if (p.id !== playlistId) return p;
+      const existing = new Set(p.trackIds);
+      const additions = ids.filter((id) => !existing.has(id));
+      return { ...p, trackIds: [...p.trackIds, ...additions] };
+    });
+    persistPlaylists(next);
+    setBulkAddOpen(false);
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const bulkCreatePlaylistAndAdd = () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    Alert.prompt(
+      'Nova playlist',
+      'Como quer chamar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Criar',
+          onPress: (name) => {
+            const pl = newPlaylist(name || '');
+            const withTracks = { ...pl, trackIds: ids };
+            persistPlaylists([...playlists, withTracks]);
+            setBulkAddOpen(false);
+            setSelectionMode(false);
+            setSelectedIds(new Set());
+          },
+        },
+      ],
+      'plain-text',
+      ''
+    );
   };
 
   const confirmBulkDelete = () => {
@@ -1921,6 +1988,26 @@ export default function App() {
                 </View>
                 <Pressable
                   hitSlop={10}
+                  onPress={() => {
+                    if (selectedIds.size === 0) return;
+                    hapLight();
+                    setBulkAddOpen(true);
+                  }}
+                  disabled={selectedIds.size === 0}
+                  style={[
+                    styles.selectionDeleteBtn,
+                    { marginRight: spacing.sm },
+                    selectedIds.size === 0 && { opacity: 0.4 },
+                  ]}
+                >
+                  <Ionicons
+                    name="add"
+                    size={22}
+                    color={theme.accent}
+                  />
+                </Pressable>
+                <Pressable
+                  hitSlop={10}
                   onPress={confirmBulkDelete}
                   disabled={selectedIds.size === 0}
                   style={[
@@ -2093,7 +2180,7 @@ export default function App() {
                 />
               ) : (
                 <FlatList
-                  data={files}
+                  data={sortedFiles}
                   keyExtractor={(f) => f.id}
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={{
@@ -2224,12 +2311,24 @@ export default function App() {
       />
 
       <AddToPlaylistSheet
-        visible={!!addTarget}
+        visible={!!addTarget || bulkAddOpen}
         track={addTarget ?? undefined}
+        subtitleOverride={
+          bulkAddOpen
+            ? `${selectedIds.size} ${
+                selectedIds.size === 1 ? 'musica selecionada' : 'musicas selecionadas'
+              }`
+            : undefined
+        }
         playlists={playlists}
-        onClose={() => setAddTarget(null)}
-        onAdd={addSongToPlaylist}
-        onCreateAndAdd={createPlaylistAndAdd}
+        onClose={() => {
+          setAddTarget(null);
+          setBulkAddOpen(false);
+        }}
+        onAdd={bulkAddOpen ? bulkAddToPlaylist : addSongToPlaylist}
+        onCreateAndAdd={
+          bulkAddOpen ? bulkCreatePlaylistAndAdd : createPlaylistAndAdd
+        }
       />
 
       <HistorySheet

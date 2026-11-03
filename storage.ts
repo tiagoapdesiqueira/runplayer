@@ -4,6 +4,8 @@ const KEY_RESUME = 'runplayer.resume.v1';
 const KEY_GROUP_BY_ARTIST = 'runplayer.groupByArtist.v1';
 const KEY_WORKOUTS_SEEDED = 'runplayer.workoutsSeeded.v1';
 const KEY_META_CACHE = 'runplayer.metaCache.v1';
+const KEY_RECENTLY_PLAYED = 'runplayer.recentlyPlayed.v1';
+const RECENT_LIMIT = 15;
 
 export interface ResumeState {
   trackId: string;
@@ -76,4 +78,28 @@ export async function saveMetaCache(cache: Record<string, any>): Promise<void> {
   try {
     await AsyncStorage.setItem(KEY_META_CACHE, JSON.stringify(cache));
   } catch {}
+}
+
+export async function loadRecentlyPlayed(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_RECENTLY_PLAYED);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((x): x is string => typeof x === 'string');
+    }
+  } catch {}
+  return [];
+}
+
+export async function saveRecentlyPlayed(ids: string[]): Promise<void> {
+  try {
+    const trimmed = ids.slice(0, RECENT_LIMIT);
+    await AsyncStorage.setItem(KEY_RECENTLY_PLAYED, JSON.stringify(trimmed));
+  } catch {}
+}
+
+export function pushRecentlyPlayed(current: string[], id: string): string[] {
+  const without = current.filter((x) => x !== id);
+  return [id, ...without].slice(0, RECENT_LIMIT);
 }
