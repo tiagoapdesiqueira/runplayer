@@ -21,6 +21,15 @@ import DraggableFlatList, {
   RenderItemParams,
   ScaleDecorator,
 } from 'react-native-draggable-flatlist';
+import {
+  Gesture,
+  GestureDetector,
+} from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import * as FileSystem from 'expo-file-system';
 import { useFonts } from 'expo-font';
 import * as Haptics from 'expo-haptics';
@@ -1041,60 +1050,126 @@ function NpProgressBar({
   visible: boolean;
   onSeek: (pos: number) => void;
 }) {
-  const prog = useProgress(visible ? 250 : 2000);
+  const prog = useProgress(visible ? 300 : 2000);
   const position = prog.position;
   const duration = prog.duration;
+
   const [barW, setBarW] = useState(SCREEN_W - spacing.xxl * 2);
   const [scrubbing, setScrubbing] = useState(false);
-  const [scrubPos, setScrubPos] = useState(0);
+  const [scrubDisplay, setScrubDisplay] = useState(0);
 
-  const displayPos = scrubbing ? scrubPos : position;
-  const pct = duration > 0 ? Math.min(1, Math.max(0, displayPos / duration)) : 0;
+  const progressX = useSharedValue(0);
+  const isScrubbingSv = useSharedValue(false);
+  const barWRef = useRef(barW);
+  const durationRef = useRef(duration);
 
-  const posFromX = (x: number): number => {
-    if (duration <= 0 || barW <= 0) return 0;
-    const clamped = Math.max(0, Math.min(barW, x));
-    return (clamped / barW) * duration;
-  };
+  useEffect(() => {
+    barWRef.current = barW;
+  }, [barW]);
+
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
+  useEffect(() => {
+    if (scrubbing) return;
+    if (duration > 0 && barW > 0) {
+      progressX.value = Math.max(
+        0,
+        Math.min(barW, (position / duration) * barW)
+      );
+    }
+  }, [position, duration, barW, scrubbing, progressX]);
+
+  const fillStyle = useAnimatedStyle(() => ({
+    width: progressX.value,
+  }));
+
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: progressX.value - (isScrubbingSv.value ? 8 : 5) }],
+    width: isScrubbingSv.value ? 16 : 10,
+    height: isScrubbingSv.value ? 16 : 10,
+    borderRadius: isScrubbingSv.value ? 8 : 5,
+    top: isScrubbingSv.value ? -6.5 : -3.5,
+  }));
+
+  const updateScrubDisplay = useCallback((x: number) => {
+    if (durationRef.current <= 0 || barWRef.current <= 0) return;
+    const p = (x / barWRef.current) * durationRef.current;
+    setScrubDisplay(p);
+  }, []);
+
+  const beginScrub = useCallback(() => {
+    hapSelect();
+    setScrubbing(true);
+  }, []);
+
+  const endScrub = useCallback(
+    (x: number) => {
+      if (durationRef.current <= 0 || barWRef.current <= 0) {
+        setScrubbing(false);
+        return;
+      }
+      const p = (x / barWRef.current) * durationRef.current;
+      onSeek(p);
+      setTimeout(() => setScrubbing(false), 300);
+    },
+    [onSeek]
+  );
+
+  const pan = Gesture.Pan()
+    .minDistance(0)
+    .activeOffsetX([-1, 1])
+    .onBegin((e) => {
+      isScrubbingSv.value = true;
+      const x = Math.max(0, Math.min(barWRef.current, e.x));
+      progressX.value = x;
+      runOnJS(beginScrub)();
+      runOnJS(updateScrubDisplay)(x);
+    })
+    .onUpdate((e) => {
+      const x = Math.max(0, Math.min(barWRef.current, e.x));
+      progressX.value = x;
+      runOnJS(updateScrubDisplay)(x);
+    })
+    .onEnd((e) => {
+      const x = Math.max(0, Math.min(barWRef.current, e.x));
+      isScrubbingSv.value = false;
+      runOnJS(endScrub)(x);
+    })
+    .onFinalize(() => {
+      isScrubbingSv.value = false;
+    });
+
+  const tap = Gesture.Tap().onEnd((e) => {
+    const x = Math.max(0, Math.min(barWRef.current, e.x));
+    progressX.value = x;
+    isScrubbingSv.value = false;
+    runOnJS(hapSelect)();
+    runOnJS(endScrub)(x);
+  });
+
+  const gesture = Gesture.Exclusive(pan, tap);
+
+  const timeDisplay = scrubbing ? scrubDisplay : position;
 
   return (
     <View style={styles.npProgressWrap}>
-      <View
-        style={styles.npProgressHit}
-        onLayout={(e) => setBarW(e.nativeEvent.layout.width)}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderGrant={(e) => {
-          hapSelect();
-          setScrubbing(true);
-          setScrubPos(posFromX(e.nativeEvent.locationX));
-        }}
-        onResponderMove={(e) => {
-          setScrubPos(posFromX(e.nativeEvent.locationX));
-        }}
-        onResponderRelease={(e) => {
-          const p = posFromX(e.nativeEvent.locationX);
-          setScrubPos(p);
-          onSeek(p);
-          setTimeout(() => setScrubbing(false), 400);
-        }}
-        onResponderTerminate={() => setScrubbing(false)}
-      >
-        <View style={styles.npProgressBg}>
-          <View style={[styles.npProgressFill, { width: `${pct * 100}%` }]} />
-          <View
-            style={[
-              styles.npProgressDot,
-              scrubbing && styles.npProgressDotActive,
-              { left: `${pct * 100}%` },
-            ]}
-          />
+      <GestureDetector gesture={gesture}>
+        <View
+          style={styles.npProgressHit}
+          onLayout={(e) => setBarW(e.nativeEvent.layout.width)}
+        >
+          <View style={styles.npProgressBg}>
+            <Animated.View style={[styles.npProgressFillAnim, fillStyle]} />
+            <Animated.View style={[styles.npProgressDotAnim, dotStyle]} />
+          </View>
         </View>
-      </View>
+      </GestureDetector>
       <View style={styles.npTimeRow}>
-        <Text style={styles.npTime}>{fmt(displayPos)}</Text>
+        <Text style={styles.npTime}>{fmt(timeDisplay)}</Text>
         <Text style={styles.npTime}>
-          -{fmt(Math.max(0, duration - displayPos))}
+          -{fmt(Math.max(0, duration - timeDisplay))}
         </Text>
       </View>
     </View>
@@ -3722,6 +3797,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     top: -6.5,
     marginLeft: -8,
+  },
+  npProgressFillAnim: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 2,
+  },
+  npProgressDotAnim: {
+    position: 'absolute',
+    backgroundColor: theme.text,
+    left: 0,
   },
   npTimeRow: {
     flexDirection: 'row',
