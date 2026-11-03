@@ -438,10 +438,12 @@ function SongRow({
 
 function PlaylistRow({
   playlist,
+  coverUri,
   onPress,
   onLongPress,
 }: {
   playlist: Playlist;
+  coverUri?: string;
   onPress: () => void;
   onLongPress: () => void;
 }) {
@@ -453,13 +455,17 @@ function PlaylistRow({
       delayLongPress={320}
       style={({ pressed }) => [styles.plRow, pressed && { opacity: 0.55 }]}
     >
-      <View style={styles.plIcon}>
-        <Ionicons
-          name={liked ? 'checkmark-circle' : 'musical-notes'}
-          size={22}
-          color={theme.accent}
-        />
-      </View>
+      {coverUri && !liked ? (
+        <Image source={{ uri: coverUri }} style={styles.plCover} />
+      ) : (
+        <View style={styles.plIcon}>
+          <Ionicons
+            name={liked ? 'checkmark-circle' : 'musical-notes'}
+            size={22}
+            color={theme.accent}
+          />
+        </View>
+      )}
       <View style={styles.rowText}>
         <Text numberOfLines={1} style={styles.rowTitle}>
           {playlist.name}
@@ -666,6 +672,113 @@ function AddToPlaylistSheet({
               </Pressable>
             ))}
           </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function AddSongsSheet({
+  visible,
+  playlistName,
+  availableSongs,
+  onClose,
+  onConfirm,
+}: {
+  visible: boolean;
+  playlistName: string;
+  availableSongs: Enriched[];
+  onClose: () => void;
+  onConfirm: (ids: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (visible) setSelected(new Set());
+  }, [visible]);
+
+  const toggle = (id: string) => {
+    hapSelect();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+        <Pressable style={styles.pickerSheet} onPress={() => {}}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.pickerHeader}>
+            <Pressable
+              onPress={onClose}
+              hitSlop={10}
+              style={styles.pickerCancelBtn}
+            >
+              <Text style={styles.pickerCancelText}>Cancelar</Text>
+            </Pressable>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text numberOfLines={1} style={styles.pickerTitle}>
+                Adicionar a {playlistName}
+              </Text>
+              <Text style={styles.pickerSub}>
+                {selected.size}{' '}
+                {selected.size === 1 ? 'selecionada' : 'selecionadas'}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                if (selected.size === 0) return;
+                hapMedium();
+                onConfirm(Array.from(selected));
+              }}
+              hitSlop={10}
+              disabled={selected.size === 0}
+              style={[
+                styles.pickerDoneBtn,
+                selected.size === 0 && { opacity: 0.4 },
+              ]}
+            >
+              <Text style={styles.pickerDoneText}>Adicionar</Text>
+            </Pressable>
+          </View>
+          {availableSongs.length === 0 ? (
+            <View style={styles.historyEmpty}>
+              <Ionicons
+                name="musical-notes-outline"
+                size={40}
+                color={theme.textDim}
+                style={{ marginBottom: spacing.sm }}
+              />
+              <Text style={styles.historyEmptyText}>
+                Todas as suas musicas ja{'\n'}estao nessa playlist.
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={availableSongs}
+              keyExtractor={(f) => f.id}
+              style={{ maxHeight: 520 }}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <SongRow
+                  item={item}
+                  active={false}
+                  selectionMode
+                  selected={selected.has(item.id)}
+                  onPress={() => toggle(item.id)}
+                />
+              )}
+            />
+          )}
         </Pressable>
       </Pressable>
     </Modal>
@@ -1055,7 +1168,9 @@ export default function App() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [addSongsToPlaylistId, setAddSongsToPlaylistId] = useState<string | null>(null);
   const [recentlyPlayed, setRecentlyPlayed] = useState<string[]>([]);
+  const [playlistCovers, setPlaylistCovers] = useState<Record<string, string>>({});
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -1194,6 +1309,17 @@ export default function App() {
       setFiles(enriched);
       const pls = await loadPlaylists();
       setPlaylists(pls);
+      const covers: Record<string, string> = {};
+      for (const pl of pls) {
+        const songsWithArt = pl.trackIds
+          .map((id) => filesByIdRef.current.get(id))
+          .filter((f): f is Enriched => !!f?.meta?.artworkUri);
+        if (songsWithArt.length === 0) continue;
+        const pick =
+          songsWithArt[Math.floor(Math.random() * songsWithArt.length)];
+        if (pick.meta?.artworkUri) covers[pl.id] = pick.meta.artworkUri;
+      }
+      setPlaylistCovers(covers);
       const grouped = await loadGroupByArtist();
       setGroupByArtist(grouped);
       const hist = await loadWorkouts();
@@ -1888,6 +2014,16 @@ export default function App() {
                 hitSlop={10}
                 onPress={() => {
                   hapLight();
+                  setAddSongsToPlaylistId(viewingPlaylist.id);
+                }}
+                style={styles.headerIconBtn}
+              >
+                <Ionicons name="add" size={22} color={theme.text} />
+              </Pressable>
+              <Pressable
+                hitSlop={10}
+                onPress={() => {
+                  hapLight();
                   if (viewingPlaylistSongs.length > 0) {
                     playFromContext(
                       { kind: 'playlist', id: viewingPlaylist.id },
@@ -2258,6 +2394,7 @@ export default function App() {
                     renderItem={({ item }) => (
                       <PlaylistRow
                         playlist={item}
+                        coverUri={playlistCovers[item.id]}
                         onPress={() => {
                           hapSelect();
                           setViewingPlaylistId(item.id);
@@ -2308,6 +2445,32 @@ export default function App() {
         onRepeat={cycleRepeat}
         onSeek={seek}
         onToggleLike={handleToggleLike}
+      />
+
+      <AddSongsSheet
+        visible={!!addSongsToPlaylistId}
+        playlistName={
+          playlists.find((p) => p.id === addSongsToPlaylistId)?.name ?? ''
+        }
+        availableSongs={(() => {
+          if (!addSongsToPlaylistId) return [];
+          const pl = playlists.find((p) => p.id === addSongsToPlaylistId);
+          if (!pl) return [];
+          const inPl = new Set(pl.trackIds);
+          return files.filter((f) => !inPl.has(f.id));
+        })()}
+        onClose={() => setAddSongsToPlaylistId(null)}
+        onConfirm={(ids) => {
+          if (!addSongsToPlaylistId) return;
+          const next = playlists.map((p) => {
+            if (p.id !== addSongsToPlaylistId) return p;
+            const existing = new Set(p.trackIds);
+            const additions = ids.filter((id) => !existing.has(id));
+            return { ...p, trackIds: [...p.trackIds, ...additions] };
+          });
+          persistPlaylists(next);
+          setAddSongsToPlaylistId(null);
+        }}
       />
 
       <AddToPlaylistSheet
@@ -2463,6 +2626,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.xs,
+  },
+
+  // Add songs picker sheet
+  pickerSheet: {
+    backgroundColor: theme.bgElevated,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
+    maxHeight: '85%',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: spacing.md,
+  },
+  pickerCancelBtn: {
+    paddingVertical: 6,
+    paddingRight: spacing.sm,
+  },
+  pickerCancelText: {
+    color: theme.textSoft,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.medium,
+  },
+  pickerTitle: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.callout,
+    fontWeight: weight.semibold,
+    letterSpacing: -0.1,
+  },
+  pickerSub: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.caption,
+    marginTop: 1,
+  },
+  pickerDoneBtn: {
+    paddingVertical: 6,
+    paddingLeft: spacing.sm,
+  },
+  pickerDoneText: {
+    color: theme.accent,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.semibold,
   },
 
   // Header bar (playlist detail)
@@ -2747,6 +2959,12 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surfaceOverlay,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  plCover: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.sm,
+    backgroundColor: theme.surface,
   },
   plCreateGhost: {
     flexDirection: 'row',
