@@ -13,6 +13,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,17 +40,27 @@ import TrackPlayer, {
 import { readId3, Metadata } from './metadata';
 import {
   hasSeededWorkouts,
+  loadCrossfadeEnabled,
+  loadCrossfadeSeconds,
   loadGroupByArtist,
   loadMetaCache,
   loadRecentlyPlayed,
   loadResume,
   markWorkoutsSeeded,
   pushRecentlyPlayed,
+  saveCrossfadeEnabled,
+  saveCrossfadeSeconds,
   saveGroupByArtist,
   saveMetaCache,
   saveRecentlyPlayed,
   saveResume,
 } from './storage';
+import {
+  cancelCrossfade,
+  handoffToTrackPlayer,
+  isCrossfadeActive,
+  startCrossfade,
+} from './crossfade';
 import {
   defaultPalette,
   ff,
@@ -74,7 +85,12 @@ import {
   savePlaylists,
   toggleLiked,
 } from './playlists';
-import { fadeInForTrack, resetVolumeState, setTargetVolume } from './volume';
+import {
+  fadeInForTrack,
+  fadeOutAndStop,
+  resetVolumeState,
+  setTargetVolume,
+} from './volume';
 import { startAutoPause, stopAutoPause } from './autoPause';
 import {
   announceWorkoutEnd,
@@ -692,10 +708,24 @@ function AddSongsSheet({
   onConfirm: (ids: string[]) => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
-    if (visible) setSelected(new Set());
+    if (visible) {
+      setSelected(new Set());
+      setQuery('');
+    }
   }, [visible]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return availableSongs;
+    return availableSongs.filter((f) => {
+      const title = (f.meta?.title || f.name).toLowerCase();
+      const artist = (f.meta?.artist || '').toLowerCase();
+      return title.includes(q) || artist.includes(q);
+    });
+  }, [availableSongs, query]);
 
   const toggle = (id: string) => {
     hapSelect();
@@ -763,22 +793,148 @@ function AddSongsSheet({
               </Text>
             </View>
           ) : (
-            <FlatList
-              data={availableSongs}
-              keyExtractor={(f) => f.id}
-              style={{ maxHeight: 520 }}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <SongRow
-                  item={item}
-                  active={false}
-                  selectionMode
-                  selected={selected.has(item.id)}
-                  onPress={() => toggle(item.id)}
+            <>
+              <View style={styles.searchBar}>
+                <Ionicons
+                  name="search"
+                  size={16}
+                  color={theme.textMuted}
+                  style={{ marginRight: spacing.sm }}
                 />
-              )}
-            />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Buscar musica ou artista"
+                  placeholderTextColor={theme.textMuted}
+                  style={styles.searchInput}
+                  returnKeyType="search"
+                />
+                {query.length > 0 && (
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => setQuery('')}
+                    style={styles.searchClear}
+                  >
+                    <Ionicons
+                      name="close-circle"
+                      size={16}
+                      color={theme.textMuted}
+                    />
+                  </Pressable>
+                )}
+              </View>
+              <FlatList
+                data={filtered}
+                keyExtractor={(f) => f.id}
+                style={{ maxHeight: 480 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => (
+                  <SongRow
+                    item={item}
+                    active={false}
+                    selectionMode
+                    selected={selected.has(item.id)}
+                    onPress={() => toggle(item.id)}
+                  />
+                )}
+              />
+            </>
           )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function SettingsSheet({
+  visible,
+  crossfadeEnabled,
+  crossfadeSeconds,
+  onClose,
+  onToggleCrossfade,
+  onChangeCrossfadeSeconds,
+}: {
+  visible: boolean;
+  crossfadeEnabled: boolean;
+  crossfadeSeconds: number;
+  onClose: () => void;
+  onToggleCrossfade: (v: boolean) => void;
+  onChangeCrossfadeSeconds: (n: number) => void;
+}) {
+  const presets = [3, 6, 9, 12];
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>Ajustes</Text>
+          <Text style={styles.sheetSub}>Personalize a reproducao</Text>
+
+          <View style={styles.settingsBlock}>
+            <View style={styles.settingsRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsLabel}>Crossfade</Text>
+                <Text style={styles.settingsHint}>
+                  Mistura o fim de uma musica com o comeco da proxima
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  hapLight();
+                  onToggleCrossfade(!crossfadeEnabled);
+                }}
+                style={[
+                  styles.settingsToggle,
+                  crossfadeEnabled && styles.settingsToggleOn,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.settingsToggleKnob,
+                    crossfadeEnabled && styles.settingsToggleKnobOn,
+                  ]}
+                />
+              </Pressable>
+            </View>
+
+            {crossfadeEnabled ? (
+              <View style={styles.settingsSubRow}>
+                <Text style={styles.settingsHint}>
+                  Duracao: {crossfadeSeconds}s
+                </Text>
+                <View style={styles.presetRow}>
+                  {presets.map((s) => (
+                    <Pressable
+                      key={s}
+                      onPress={() => {
+                        hapSelect();
+                        onChangeCrossfadeSeconds(s);
+                      }}
+                      style={[
+                        styles.presetBtn,
+                        crossfadeSeconds === s && styles.presetBtnActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.presetText,
+                          crossfadeSeconds === s && styles.presetTextActive,
+                        ]}
+                      >
+                        {s}s
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -1171,6 +1327,11 @@ export default function App() {
   const [addSongsToPlaylistId, setAddSongsToPlaylistId] = useState<string | null>(null);
   const [recentlyPlayed, setRecentlyPlayed] = useState<string[]>([]);
   const [playlistCovers, setPlaylistCovers] = useState<Record<string, string>>({});
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [crossfadeEnabled, setCrossfadeEnabled] = useState(true);
+  const [crossfadeSeconds, setCrossfadeSeconds] = useState(6);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -1180,6 +1341,7 @@ export default function App() {
   const autoPausedRef = useRef(false);
   const playingRef = useRef(false);
   const workoutActiveRef = useRef(false);
+  const fadeOutStartedRef = useRef(false);
 
   const progress = useProgress(500);
 
@@ -1342,6 +1504,10 @@ export default function App() {
       setWorkoutHistory(hist);
       const recent = await loadRecentlyPlayed();
       setRecentlyPlayed(recent);
+      const cfEnabled = await loadCrossfadeEnabled();
+      setCrossfadeEnabled(cfEnabled);
+      const cfSec = await loadCrossfadeSeconds();
+      setCrossfadeSeconds(cfSec);
       if (enriched.length > 0) {
         await TrackPlayer.reset();
         await TrackPlayer.add(toTracks(enriched));
@@ -1380,6 +1546,16 @@ export default function App() {
     return [...inRecent, ...rest];
   }, [files, recentlyPlayed]);
 
+  const filteredFiles = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return sortedFiles;
+    return sortedFiles.filter((f) => {
+      const title = (f.meta?.title || f.name).toLowerCase();
+      const artist = (f.meta?.artist || '').toLowerCase();
+      return title.includes(q) || artist.includes(q);
+    });
+  }, [sortedFiles, searchQuery]);
+
   useEffect(() => {
     (async () => {
       const p = await extractPalette(current?.meta?.artworkUri);
@@ -1395,6 +1571,33 @@ export default function App() {
     lastSavedRef.current = { id: currentId, pos };
     saveResume({ trackId: currentId, position: pos }).catch(() => {});
   }, [currentId, progress.position]);
+
+  useEffect(() => {
+    if (!crossfadeEnabled) return;
+    if (!playing || !progress.duration || !currentId) return;
+    const remaining = progress.duration - progress.position;
+    if (remaining <= 0 || remaining > crossfadeSeconds + 0.3) return;
+    if (fadeOutStartedRef.current || isCrossfadeActive()) return;
+    (async () => {
+      try {
+        const queue = await TrackPlayer.getQueue();
+        const idx = await TrackPlayer.getActiveTrackIndex();
+        if (idx == null) return;
+        const nextIdx = idx + 1 < queue.length ? idx + 1 : 0;
+        if (nextIdx === idx) return;
+        const nextTrack = queue[nextIdx];
+        const nextUri = String(nextTrack?.url ?? '');
+        if (!nextUri) return;
+        const nextMeta = filesByIdRef.current.get(String(nextTrack.id))?.meta;
+        const nextGainMult = nextMeta?.gainDb != null
+          ? Math.pow(10, Math.max(-12, Math.min(0, -14 - nextMeta.gainDb)) / 20)
+          : 1;
+        fadeOutStartedRef.current = true;
+        startCrossfade(nextUri, crossfadeSeconds * 1000, nextGainMult).catch(() => {});
+      } catch {}
+    })();
+  }, [progress.position, progress.duration, playing, currentId, crossfadeEnabled, crossfadeSeconds]);
+
 
   useEffect(() => {
     playingRef.current = playing;
@@ -1426,6 +1629,7 @@ export default function App() {
         setPlaying(ev.state === State.Playing);
       }
       if (ev.type === Event.PlaybackActiveTrackChanged) {
+        fadeOutStartedRef.current = false;
         const idx = await TrackPlayer.getActiveTrackIndex();
         if (idx != null) {
           const t = await TrackPlayer.getTrack(idx);
@@ -1439,7 +1643,12 @@ export default function App() {
             });
             const file = filesByIdRef.current.get(id);
             const gain = file?.meta?.gainDb;
-            if (ev.index !== ev.lastIndex && ev.lastIndex != null) {
+            const mult = gain != null
+              ? Math.pow(10, Math.max(-12, Math.min(0, -14 - gain)) / 20)
+              : 1;
+            if (isCrossfadeActive()) {
+              handoffToTrackPlayer(mult).catch(() => {});
+            } else if (ev.index !== ev.lastIndex && ev.lastIndex != null) {
               fadeInForTrack(gain).catch(() => {});
             } else {
               setTargetVolume(gain).catch(() => {});
@@ -1477,12 +1686,20 @@ export default function App() {
       await playFromContext({ kind: 'library' }, files[0].id);
       return;
     }
-    if (playing) await TrackPlayer.pause();
-    else await TrackPlayer.play();
+    if (playing) {
+      if (isCrossfadeActive()) await cancelCrossfade();
+      await TrackPlayer.pause();
+    } else {
+      fadeOutStartedRef.current = false;
+      setTargetVolume(current?.meta?.gainDb).catch(() => {});
+      await TrackPlayer.play();
+    }
   };
 
   const next = async () => {
     try {
+      if (isCrossfadeActive()) await cancelCrossfade();
+      fadeOutStartedRef.current = false;
       await TrackPlayer.skipToNext();
       await TrackPlayer.play();
     } catch {}
@@ -1490,6 +1707,8 @@ export default function App() {
 
   const prev = async () => {
     try {
+      if (isCrossfadeActive()) await cancelCrossfade();
+      fadeOutStartedRef.current = false;
       await TrackPlayer.skipToPrevious();
       await TrackPlayer.play();
     } catch {}
@@ -2175,40 +2394,110 @@ export default function App() {
                 </Pressable>
               </View>
             ) : (
-              <View style={styles.topRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.topKicker}>Biblioteca</Text>
-                  <Text style={styles.topTitle}>Suas musicas</Text>
+              <>
+                <View style={styles.topRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.topKicker}>Biblioteca</Text>
+                    <Text style={styles.topTitle}>Suas musicas</Text>
+                  </View>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => {
+                      hapLight();
+                      setSearchOpen((prev) => {
+                        if (prev) setSearchQuery('');
+                        return !prev;
+                      });
+                    }}
+                    style={[
+                      styles.subtleIconBtn,
+                      searchOpen && styles.subtleIconBtnActive,
+                    ]}
+                  >
+                    <Ionicons
+                      name="search-outline"
+                      size={18}
+                      color={searchOpen ? theme.accent : theme.textSoft}
+                    />
+                  </Pressable>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => {
+                      hapLight();
+                      setHistoryOpen(true);
+                    }}
+                    style={styles.subtleIconBtn}
+                  >
+                    <Ionicons
+                      name="time-outline"
+                      size={18}
+                      color={theme.textSoft}
+                    />
+                  </Pressable>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={toggleGroupByArtist}
+                    style={[
+                      styles.subtleIconBtn,
+                      groupByArtist && styles.subtleIconBtnActive,
+                    ]}
+                  >
+                    <Ionicons
+                      name="people-outline"
+                      size={18}
+                      color={groupByArtist ? theme.accent : theme.textSoft}
+                    />
+                  </Pressable>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => {
+                      hapLight();
+                      setSettingsOpen(true);
+                    }}
+                    style={styles.subtleIconBtn}
+                  >
+                    <Ionicons
+                      name="settings-outline"
+                      size={18}
+                      color={theme.textSoft}
+                    />
+                  </Pressable>
                 </View>
-                <Pressable
-                  hitSlop={10}
-                  onPress={() => {
-                    hapLight();
-                    setHistoryOpen(true);
-                  }}
-                  style={styles.subtleIconBtn}
-                >
-                  <Ionicons
-                    name="time-outline"
-                    size={18}
-                    color={theme.textSoft}
-                  />
-                </Pressable>
-                <Pressable
-                  hitSlop={10}
-                  onPress={toggleGroupByArtist}
-                  style={[
-                    styles.subtleIconBtn,
-                    groupByArtist && styles.subtleIconBtnActive,
-                  ]}
-                >
-                  <Ionicons
-                    name="people-outline"
-                    size={18}
-                    color={groupByArtist ? theme.accent : theme.textSoft}
-                  />
-                </Pressable>
-              </View>
+                {searchOpen && (
+                  <View style={styles.searchBarWrap}>
+                    <View style={styles.searchBar}>
+                      <Ionicons
+                        name="search"
+                        size={16}
+                        color={theme.textMuted}
+                        style={{ marginRight: spacing.sm }}
+                      />
+                      <TextInput
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        placeholder="Buscar musica ou artista"
+                        placeholderTextColor={theme.textMuted}
+                        style={styles.searchInput}
+                        autoFocus
+                        returnKeyType="search"
+                      />
+                      {searchQuery.length > 0 && (
+                        <Pressable
+                          hitSlop={10}
+                          onPress={() => setSearchQuery('')}
+                          style={styles.searchClear}
+                        >
+                          <Ionicons
+                            name="close-circle"
+                            size={16}
+                            color={theme.textMuted}
+                          />
+                        </Pressable>
+                      )}
+                    </View>
+                  </View>
+                )}
+              </>
             )}
 
             <View style={styles.toolRow}>
@@ -2332,7 +2621,7 @@ export default function App() {
                 />
               ) : (
                 <FlatList
-                  data={sortedFiles}
+                  data={filteredFiles}
                   keyExtractor={(f) => f.id}
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={{
@@ -2516,6 +2805,22 @@ export default function App() {
         onClose={() => setHistoryOpen(false)}
         onDelete={handleDeleteWorkout}
       />
+
+      <SettingsSheet
+        visible={settingsOpen}
+        crossfadeEnabled={crossfadeEnabled}
+        crossfadeSeconds={crossfadeSeconds}
+        onClose={() => setSettingsOpen(false)}
+        onToggleCrossfade={(v) => {
+          setCrossfadeEnabled(v);
+          saveCrossfadeEnabled(v).catch(() => {});
+          if (!v && isCrossfadeActive()) cancelCrossfade().catch(() => {});
+        }}
+        onChangeCrossfadeSeconds={(n) => {
+          setCrossfadeSeconds(n);
+          saveCrossfadeSeconds(n).catch(() => {});
+        }}
+      />
     </View>
   );
 }
@@ -2601,6 +2906,32 @@ const styles = StyleSheet.create({
   },
   subtleIconBtnActive: {
     backgroundColor: theme.accentSoft,
+  },
+
+  // Search bar
+  searchBarWrap: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surface,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.body,
+    padding: 0,
+    margin: 0,
+  },
+  searchClear: {
+    marginLeft: spacing.sm,
+    padding: 2,
   },
 
   // Selection mode bar
@@ -2691,6 +3022,78 @@ const styles = StyleSheet.create({
     fontFamily: ff,
     fontSize: font.button,
     fontWeight: weight.semibold,
+  },
+
+  // Settings sheet
+  settingsBlock: {
+    marginTop: spacing.sm,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+  },
+  settingsLabel: {
+    color: theme.text,
+    fontFamily: ff,
+    fontSize: font.callout,
+    fontWeight: weight.semibold,
+    letterSpacing: -0.1,
+  },
+  settingsHint: {
+    color: theme.textMuted,
+    fontFamily: ff,
+    fontSize: font.small,
+    marginTop: 2,
+  },
+  settingsToggle: {
+    width: 52,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: theme.surfaceHigh,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  settingsToggleOn: {
+    backgroundColor: theme.accent,
+  },
+  settingsToggleKnob: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: theme.text,
+  },
+  settingsToggleKnobOn: {
+    alignSelf: 'flex-end',
+  },
+  settingsSubRow: {
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.divider,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  presetBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: theme.surfaceHigh,
+    alignItems: 'center',
+  },
+  presetBtnActive: {
+    backgroundColor: theme.accentSoft,
+  },
+  presetText: {
+    color: theme.textSoft,
+    fontFamily: ff,
+    fontSize: font.button,
+    fontWeight: weight.semibold,
+  },
+  presetTextActive: {
+    color: theme.accent,
   },
 
   // Header bar (playlist detail)

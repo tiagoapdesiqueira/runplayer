@@ -5,6 +5,8 @@ const KEY_GROUP_BY_ARTIST = 'runplayer.groupByArtist.v1';
 const KEY_WORKOUTS_SEEDED = 'runplayer.workoutsSeeded.v1';
 const KEY_META_CACHE = 'runplayer.metaCache.v1';
 const KEY_RECENTLY_PLAYED = 'runplayer.recentlyPlayed.v1';
+const KEY_CROSSFADE_ENABLED = 'runplayer.crossfadeEnabled.v1';
+const KEY_CROSSFADE_SECONDS = 'runplayer.crossfadeSeconds.v1';
 const RECENT_LIMIT = 15;
 
 export interface ResumeState {
@@ -102,4 +104,34 @@ export async function saveRecentlyPlayed(ids: string[]): Promise<void> {
 export function pushRecentlyPlayed(current: string[], id: string): string[] {
   const without = current.filter((x) => x !== id);
   return [id, ...without].slice(0, RECENT_LIMIT);
+}
+
+export async function loadCrossfadeEnabled(): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_CROSSFADE_ENABLED);
+    if (raw === null) return true;
+    return raw === '1';
+  } catch {}
+  return true;
+}
+
+export async function saveCrossfadeEnabled(enabled: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_CROSSFADE_ENABLED, enabled ? '1' : '0');
+  } catch {}
+}
+
+export async function loadCrossfadeSeconds(): Promise<number> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_CROSSFADE_SECONDS);
+    const n = raw ? parseInt(raw, 10) : NaN;
+    if (isFinite(n) && n >= 2 && n <= 12) return n;
+  } catch {}
+  return 6;
+}
+
+export async function saveCrossfadeSeconds(seconds: number): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_CROSSFADE_SECONDS, String(seconds));
+  } catch {}
 }
