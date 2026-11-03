@@ -167,7 +167,7 @@ async function ensureFolderVisible(): Promise<void> {
     await FileSystem.writeAsStringAsync(
       marker,
       'Coloque seus arquivos .mp3 nesta pasta.\n' +
-        'Depois, no RunPlayer, toque no botao de recarregar.\n'
+        'Depois, no Run Player, toque no botão de recarregar.\n'
     );
   } catch {}
 }
@@ -362,7 +362,7 @@ function SegmentedTabs({
           style={styles.segBtn}
         >
           <Text style={[styles.segText, tab === 'songs' && styles.segTextActive]}>
-            Musicas
+            Músicas
           </Text>
         </Pressable>
         <Pressable
@@ -488,7 +488,7 @@ function PlaylistRow({
         </Text>
         <Text numberOfLines={1} style={styles.rowArtist}>
           {playlist.trackIds.length}{' '}
-          {playlist.trackIds.length === 1 ? 'musica' : 'musicas'}
+          {playlist.trackIds.length === 1 ? 'música' : 'músicas'}
         </Text>
       </View>
       <Ionicons
@@ -641,7 +641,7 @@ function AddToPlaylistSheet({
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>Adicionar a playlist</Text>
+          <Text style={styles.sheetTitle}>Adicionar à playlist</Text>
           <Text numberOfLines={1} style={styles.sheetSub}>
             {subtitleOverride ?? (track?.meta?.title || track?.name || '')}
           </Text>
@@ -682,7 +682,7 @@ function AddToPlaylistSheet({
                   </Text>
                   <Text style={styles.sheetItemSub}>
                     {pl.trackIds.length}{' '}
-                    {pl.trackIds.length === 1 ? 'musica' : 'musicas'}
+                    {pl.trackIds.length === 1 ? 'música' : 'músicas'}
                   </Text>
                 </View>
               </Pressable>
@@ -757,7 +757,7 @@ function AddSongsSheet({
             </Pressable>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text numberOfLines={1} style={styles.pickerTitle}>
-                Adicionar a {playlistName}
+                Adicionar à {playlistName}
               </Text>
               <Text style={styles.pickerSub}>
                 {selected.size}{' '}
@@ -789,7 +789,7 @@ function AddSongsSheet({
                 style={{ marginBottom: spacing.sm }}
               />
               <Text style={styles.historyEmptyText}>
-                Todas as suas musicas ja{'\n'}estao nessa playlist.
+                Todas as suas músicas já{'\n'}estão nessa playlist.
               </Text>
             </View>
           ) : (
@@ -804,7 +804,7 @@ function AddSongsSheet({
                 <TextInput
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Buscar musica ou artista"
+                  placeholder="Buscar música ou artista"
                   placeholderTextColor={theme.textMuted}
                   style={styles.searchInput}
                   returnKeyType="search"
@@ -874,14 +874,14 @@ function SettingsSheet({
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>Ajustes</Text>
-          <Text style={styles.sheetSub}>Personalize a reproducao</Text>
+          <Text style={styles.sheetSub}>Personalize a reprodução</Text>
 
           <View style={styles.settingsBlock}>
             <View style={styles.settingsRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.settingsLabel}>Crossfade</Text>
                 <Text style={styles.settingsHint}>
-                  Mistura o fim de uma musica com o comeco da proxima
+                  Mistura o fim de uma música com o começo da próxima
                 </Text>
               </View>
               <Pressable
@@ -906,7 +906,7 @@ function SettingsSheet({
             {crossfadeEnabled ? (
               <View style={styles.settingsSubRow}>
                 <Text style={styles.settingsHint}>
-                  Duracao: {crossfadeSeconds}s
+                  Duração: {crossfadeSeconds}s
                 </Text>
                 <View style={styles.presetRow}>
                   {presets.map((s) => (
@@ -962,7 +962,7 @@ function HistorySheet({
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>Historico de treinos</Text>
+          <Text style={styles.sheetTitle}>Histórico de treinos</Text>
           <Text style={styles.sheetSub}>
             {history.length}{' '}
             {history.length === 1 ? 'treino registrado' : 'treinos registrados'}
@@ -1853,7 +1853,7 @@ export default function App() {
         onPress: () => {
           Alert.alert(
             'Apagar playlist?',
-            'Isso remove so a playlist. Suas musicas continuam na biblioteca.',
+            'Isso remove só a playlist. Suas músicas continuam na biblioteca.',
             [
               { text: 'Cancelar', style: 'cancel' },
               {
@@ -2010,8 +2010,8 @@ export default function App() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
     Alert.alert(
-      `Excluir ${ids.length} ${ids.length === 1 ? 'musica' : 'musicas'}?`,
-      'Os arquivos serao removidos da pasta do app e das playlists. Essa acao nao pode ser desfeita.',
+      `Excluir ${ids.length} ${ids.length === 1 ? 'música' : 'músicas'}?`,
+      'Os arquivos serão removidos da pasta do app e das playlists. Essa ação não pode ser desfeita.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -2030,8 +2030,8 @@ export default function App() {
   const confirmDeleteSong = (song: Enriched) => {
     const title = song.meta?.title || song.name;
     Alert.alert(
-      'Excluir musica?',
-      `"${title}" sera removida da pasta do app e de todas as playlists. Essa acao nao pode ser desfeita.`,
+      'Excluir música?',
+      `"${title}" será removida da pasta do app e de todas as playlists. Essa ação não pode ser desfeita.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -2066,7 +2066,7 @@ export default function App() {
         },
       });
       options.push({
-        text: 'Adicionar a outra playlist',
+        text: 'Adicionar à outra playlist',
         onPress: () => openAddToPlaylist(song),
       });
       options.push({
@@ -2076,11 +2076,11 @@ export default function App() {
       });
     } else {
       options.push({
-        text: 'Adicionar a playlist',
+        text: 'Adicionar à playlist',
         onPress: () => openAddToPlaylist(song),
       });
       options.push({
-        text: 'Selecionar varias',
+        text: 'Selecionar várias',
         onPress: () => enterSelectionMode(song.id),
       });
     }
@@ -2099,8 +2099,8 @@ export default function App() {
     const okGps = await startWorkout(setWorkoutStats);
     if (!okGps) {
       Alert.alert(
-        'Localizacao negada',
-        'Para medir distancia e ritmo o app precisa de acesso a localizacao.'
+        'Localização negada',
+        'Para medir distância e ritmo o app precisa de acesso à localização.'
       );
       return;
     }
@@ -2143,7 +2143,7 @@ export default function App() {
   };
 
   const handleDeleteWorkout = (id: string) => {
-    Alert.alert('Apagar treino?', 'Essa acao nao pode ser desfeita.', [
+    Alert.alert('Apagar treino?', 'Essa ação não pode ser desfeita.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Apagar',
@@ -2179,10 +2179,10 @@ export default function App() {
             color={theme.textDim}
             style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.emptyTitle}>Nenhuma musica ainda</Text>
+          <Text style={styles.emptyTitle}>Nenhuma música ainda</Text>
           <Text style={styles.emptyHelp}>
-            Abra o app Arquivos no iPhone, va em{'\n'}
-            <Text style={styles.emptyHelpBold}>No meu iPhone › RunPlayer</Text>
+            Abra o app Arquivos no iPhone, vá em{'\n'}
+            <Text style={styles.emptyHelpBold}>No meu iPhone › Run Player</Text>
             {'\n'}e coloque seus arquivos .mp3 ali.
           </Text>
           <Pressable
@@ -2236,7 +2236,7 @@ export default function App() {
               <View style={styles.headerCenter}>
                 <Text style={styles.headerKicker}>
                   PLAYLIST · {viewingPlaylistSongs.length}{' '}
-                  {viewingPlaylistSongs.length === 1 ? 'musica' : 'musicas'}
+                  {viewingPlaylistSongs.length === 1 ? 'música' : 'músicas'}
                   {sumDuration(viewingPlaylistSongs) > 0
                     ? ` · ${fmtTotalDuration(sumDuration(viewingPlaylistSongs))}`
                     : ''}
@@ -2281,7 +2281,7 @@ export default function App() {
                 />
                 <Text style={styles.emptyTitle}>Playlist vazia</Text>
                 <Text style={styles.emptyHelp}>
-                  Volte na aba Musicas, segure uma musica{'\n'}e adicione a esta
+                  Volte na aba Músicas, segure uma música{'\n'}e adicione a esta
                   playlist.
                 </Text>
               </View>
@@ -2398,7 +2398,7 @@ export default function App() {
                 <View style={styles.topRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.topKicker}>Biblioteca</Text>
-                    <Text style={styles.topTitle}>Suas musicas</Text>
+                    <Text style={styles.topTitle}>Suas músicas</Text>
                   </View>
                   <Pressable
                     hitSlop={10}
@@ -2475,7 +2475,7 @@ export default function App() {
                       <TextInput
                         value={searchQuery}
                         onChangeText={setSearchQuery}
-                        placeholder="Buscar musica ou artista"
+                        placeholder="Buscar música ou artista"
                         placeholderTextColor={theme.textMuted}
                         style={styles.searchInput}
                         autoFocus
@@ -2683,8 +2683,8 @@ export default function App() {
                     />
                     <Text style={styles.emptyTitle}>Sem playlists ainda</Text>
                     <Text style={styles.emptyHelp}>
-                      Toque em "Criar nova playlist" ou{'\n'}segure uma musica
-                      na aba Musicas.
+                      Toque em "Criar nova playlist" ou{'\n'}segure uma música
+                      na aba Músicas.
                     </Text>
                   </View>
                 ) : (
@@ -2784,7 +2784,7 @@ export default function App() {
         subtitleOverride={
           bulkAddOpen
             ? `${selectedIds.size} ${
-                selectedIds.size === 1 ? 'musica selecionada' : 'musicas selecionadas'
+                selectedIds.size === 1 ? 'música selecionada' : 'músicas selecionadas'
               }`
             : undefined
         }

@@ -5,6 +5,7 @@ const STEPS = 30;
 
 let sound: Audio.Sound | null = null;
 let active = false;
+let handoffSignaled = false;
 let audioModeConfigured = false;
 
 async function ensureAudioMode(): Promise<void> {
@@ -31,16 +32,22 @@ export async function startCrossfade(
 ): Promise<void> {
   if (active) return;
   active = true;
+  handoffSignaled = false;
   try {
     await ensureAudioMode();
     const result = await Audio.Sound.createAsync(
       { uri: nextUri },
-      { volume: 0, shouldPlay: true, positionMillis: 0, progressUpdateIntervalMillis: 100 }
+      {
+        volume: 0,
+        shouldPlay: true,
+        positionMillis: 0,
+        progressUpdateIntervalMillis: 100,
+      }
     );
     sound = result.sound;
     const stepMs = Math.max(20, durationMs / STEPS);
     for (let i = 1; i <= STEPS; i++) {
-      if (!active || !sound) break;
+      if (!active || handoffSignaled || !sound) break;
       const t = i / STEPS;
       const expoVol = targetVolume * t;
       const rntpVol = targetVolume * (1 - t);
@@ -60,16 +67,26 @@ export async function startCrossfade(
       } catch {}
       sound = null;
     }
+    try {
+      await TrackPlayer.setVolume(targetVolume);
+    } catch {}
   }
 }
 
 export async function handoffToTrackPlayer(targetVolume = 1): Promise<void> {
-  if (!active || !sound) {
+  if (!active) return;
+  handoffSignaled = true;
+  const localSound = sound;
+  if (!localSound) {
+    try {
+      await TrackPlayer.setVolume(targetVolume);
+    } catch {}
+    sound = null;
     active = false;
     return;
   }
-  const localSound = sound;
   try {
+    await new Promise((r) => setTimeout(r, 40));
     const status = await localSound.getStatusAsync();
     let posSec = 0;
     if (status.isLoaded && 'positionMillis' in status) {
@@ -98,24 +115,39 @@ export async function handoffToTrackPlayer(targetVolume = 1): Promise<void> {
       await new Promise((r) => setTimeout(r, microStepMs));
     }
     try {
+      await TrackPlayer.setVolume(targetVolume);
+    } catch {}
+    try {
       await localSound.stopAsync();
       await localSound.unloadAsync();
     } catch {}
-  } catch {}
+  } catch {
+    try {
+      await TrackPlayer.setVolume(targetVolume);
+    } catch {}
+  }
   sound = null;
   active = false;
+  handoffSignaled = false;
 }
 
 export async function cancelCrossfade(targetVolume = 1): Promise<void> {
-  if (!active) return;
+  if (!active) {
+    try {
+      await TrackPlayer.setVolume(targetVolume);
+    } catch {}
+    return;
+  }
   active = false;
+  handoffSignaled = false;
+  const localSound = sound;
+  sound = null;
   try {
-    if (sound) {
-      await sound.stopAsync();
-      await sound.unloadAsync();
+    if (localSound) {
+      await localSound.stopAsync();
+      await localSound.unloadAsync();
     }
   } catch {}
-  sound = null;
   try {
     await TrackPlayer.setVolume(targetVolume);
   } catch {}

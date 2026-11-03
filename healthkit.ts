@@ -100,7 +100,7 @@ export async function diagnoseBpm(): Promise<string> {
       ascending: false,
       unit,
     });
-    lines.push(`Samples retornadas: ${Array.isArray(samples) ? samples.length : 'nao-array'}`);
+    lines.push(`Samples retornadas: ${Array.isArray(samples) ? samples.length : 'não-array'}`);
     if (Array.isArray(samples)) {
       samples.forEach((s: any, i: number) => {
         const val = s.quantity ?? s.value ?? s.doubleValue;

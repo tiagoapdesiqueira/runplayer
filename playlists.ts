@@ -4,7 +4,7 @@ const DATA_DIR = (FileSystem.documentDirectory ?? '') + '.runplayer/';
 const PLAYLISTS_FILE = DATA_DIR + 'playlists.json';
 
 export const LIKED_PLAYLIST_ID = '__liked__';
-export const LIKED_PLAYLIST_NAME = 'Musicas Curtidas';
+export const LIKED_PLAYLIST_NAME = 'Músicas Curtidas';
 
 export interface Playlist {
   id: string;

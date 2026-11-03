@@ -78,8 +78,8 @@ function speak(msg: string) {
 
 function announceKm(km: number) {
   const paceLabel = formatPaceLabel(stats.paceSecPerKm);
-  const parts: string[] = [`Quilometro ${km}.`];
-  if (paceLabel) parts.push(`Ritmo ${paceLabel} por quilometro.`);
+  const parts: string[] = [`Quilômetro ${km}.`];
+  if (paceLabel) parts.push(`Ritmo ${paceLabel} por quilômetro.`);
   speak(parts.join(' '));
 }
 
@@ -186,7 +186,7 @@ export function isWorkoutActive(): boolean {
 
 export async function announceDebugSample(): Promise<string> {
   await warmupVoice();
-  speak('Quilometro 1. Ritmo 5 e 30 por quilometro.');
+  speak('Quilômetro 1. Ritmo 5 e 30 por quilômetro.');
   return preferredVoice ?? '(nenhuma voz selecionada)';
 }
 
@@ -212,7 +212,7 @@ export function announceWorkoutEnd() {
   const km = (stats.distanceM / 1000).toFixed(2).replace('.', ',');
   const paceLabel = formatPaceLabel(stats.paceSecPerKm);
   const msg = paceLabel
-    ? `Treino finalizado. ${km} quilometros. Ritmo medio ${paceLabel}.`
-    : `Treino finalizado. ${km} quilometros.`;
+    ? `Treino finalizado. ${km} quilômetros. Ritmo médio ${paceLabel}.`
+    : `Treino finalizado. ${km} quilômetros.`;
   speak(msg);
 }
