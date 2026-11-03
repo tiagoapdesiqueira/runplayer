@@ -68,23 +68,38 @@ export async function handoffToTrackPlayer(targetVolume = 1): Promise<void> {
     active = false;
     return;
   }
+  const localSound = sound;
   try {
-    const status = await sound.getStatusAsync();
+    const status = await localSound.getStatusAsync();
     let posSec = 0;
     if (status.isLoaded && 'positionMillis' in status) {
       posSec = (status.positionMillis ?? 0) / 1000;
     }
     try {
-      await TrackPlayer.setVolume(targetVolume);
+      await TrackPlayer.setVolume(0);
     } catch {}
     if (posSec > 0.3) {
       try {
         await TrackPlayer.seekTo(posSec);
       } catch {}
     }
+    const microSteps = 6;
+    const microStepMs = 25;
+    for (let i = 1; i <= microSteps; i++) {
+      const t = i / microSteps;
+      const rntpVol = targetVolume * t;
+      const expoVol = targetVolume * (1 - t);
+      try {
+        await TrackPlayer.setVolume(rntpVol);
+      } catch {}
+      try {
+        await localSound.setVolumeAsync(Math.max(0, expoVol));
+      } catch {}
+      await new Promise((r) => setTimeout(r, microStepMs));
+    }
     try {
-      await sound.stopAsync();
-      await sound.unloadAsync();
+      await localSound.stopAsync();
+      await localSound.unloadAsync();
     } catch {}
   } catch {}
   sound = null;
