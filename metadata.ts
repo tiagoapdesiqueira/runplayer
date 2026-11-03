@@ -8,7 +8,7 @@ export interface Metadata {
   durationSec?: number;
 }
 
-const CACHE_DIR = (FileSystem.cacheDirectory ?? '') + 'artwork/';
+const CACHE_DIR = (FileSystem.documentDirectory ?? '') + '.runplayer/artwork/';
 
 async function ensureCacheDir(): Promise<void> {
   const info = await FileSystem.getInfoAsync(CACHE_DIR);

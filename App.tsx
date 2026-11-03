@@ -1300,7 +1300,23 @@ export default function App() {
       await setupPlayer();
       setReady(true);
       const cache = await loadMetaCache();
+      let cacheDirty = false;
+      for (const id of Object.keys(cache)) {
+        const uri = cache[id]?.artworkUri;
+        if (!uri) continue;
+        try {
+          const info = await FileSystem.getInfoAsync(uri);
+          if (!info.exists) {
+            delete cache[id];
+            cacheDirty = true;
+          }
+        } catch {
+          delete cache[id];
+          cacheDirty = true;
+        }
+      }
       metaCacheRef.current = cache;
+      if (cacheDirty) saveMetaCache(cache).catch(() => {});
       const list = await listMp3s();
       const enriched: Enriched[] = list.map((f) =>
         cache[f.id] ? { ...f, meta: cache[f.id] } : f
