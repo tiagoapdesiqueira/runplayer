@@ -45,19 +45,49 @@ export async function startCrossfade(
       }
     );
     sound = result.sound;
-    const stepMs = Math.max(20, durationMs / STEPS);
-    for (let i = 1; i <= STEPS; i++) {
+
+    const startTime = Date.now();
+    const endTime = startTime + durationMs;
+    const rntpFadeEnd = startTime + Math.min(durationMs * 0.5, 1800);
+    let rntpSilenced = false;
+    const stepMs = 40;
+
+    while (Date.now() < endTime) {
       if (!active || handoffSignaled || !sound) break;
-      const t = i / STEPS;
-      const expoVol = targetVolume * t;
-      const rntpVol = targetVolume * (1 - t);
+      const now = Date.now();
+      const tExpo = Math.min(1, (now - startTime) / durationMs);
+      const expoVol = targetVolume * tExpo;
       try {
         await sound.setVolumeAsync(expoVol);
       } catch {}
-      try {
-        await TrackPlayer.setVolume(Math.max(0, rntpVol));
-      } catch {}
+      if (!rntpSilenced) {
+        const tRntp = Math.min(1, (now - startTime) / (rntpFadeEnd - startTime));
+        const rntpVol = targetVolume * (1 - tRntp);
+        try {
+          await TrackPlayer.setVolume(Math.max(0, rntpVol));
+        } catch {}
+        if (tRntp >= 1) {
+          rntpSilenced = true;
+          try {
+            await TrackPlayer.setVolume(0);
+          } catch {}
+        }
+      } else {
+        try {
+          await TrackPlayer.setVolume(0);
+        } catch {}
+      }
       await new Promise((r) => setTimeout(r, stepMs));
+    }
+    if (active && !handoffSignaled) {
+      try {
+        await TrackPlayer.setVolume(0);
+      } catch {}
+      if (sound) {
+        try {
+          await sound.setVolumeAsync(targetVolume);
+        } catch {}
+      }
     }
   } catch {
     active = false;

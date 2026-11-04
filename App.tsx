@@ -510,11 +510,108 @@ function PlaylistRow({
   );
 }
 
+function MiniProgressBar({ onSeek }: { onSeek: (pos: number) => void }) {
+  const prog = useProgress(400);
+  const duration = prog.duration;
+  const position = prog.position;
+
+  const [barW, setBarW] = useState(SCREEN_W - spacing.md * 2);
+  const [scrubbing, setScrubbing] = useState(false);
+
+  const progressX = useSharedValue(0);
+  const isScrubbingSv = useSharedValue(false);
+  const barWRef = useRef(barW);
+  const durationRef = useRef(duration);
+
+  useEffect(() => {
+    barWRef.current = barW;
+  }, [barW]);
+
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
+  useEffect(() => {
+    if (scrubbing) return;
+    if (duration > 0 && barW > 0) {
+      progressX.value = Math.max(
+        0,
+        Math.min(barW, (position / duration) * barW)
+      );
+    }
+  }, [position, duration, barW, scrubbing, progressX]);
+
+  const fillStyle = useAnimatedStyle(() => ({
+    width: progressX.value,
+  }));
+
+  const beginScrub = useCallback(() => {
+    hapSelect();
+    setScrubbing(true);
+  }, []);
+
+  const endScrub = useCallback(
+    (x: number) => {
+      if (durationRef.current <= 0 || barWRef.current <= 0) {
+        setScrubbing(false);
+        return;
+      }
+      const p = (x / barWRef.current) * durationRef.current;
+      onSeek(p);
+      setTimeout(() => setScrubbing(false), 300);
+    },
+    [onSeek]
+  );
+
+  const pan = Gesture.Pan()
+    .minDistance(0)
+    .activeOffsetX([-1, 1])
+    .onBegin((e) => {
+      isScrubbingSv.value = true;
+      const x = Math.max(0, Math.min(barWRef.current, e.x));
+      progressX.value = x;
+      runOnJS(beginScrub)();
+    })
+    .onUpdate((e) => {
+      const x = Math.max(0, Math.min(barWRef.current, e.x));
+      progressX.value = x;
+    })
+    .onEnd((e) => {
+      const x = Math.max(0, Math.min(barWRef.current, e.x));
+      isScrubbingSv.value = false;
+      runOnJS(endScrub)(x);
+    })
+    .onFinalize(() => {
+      isScrubbingSv.value = false;
+    });
+
+  const tap = Gesture.Tap().onEnd((e) => {
+    const x = Math.max(0, Math.min(barWRef.current, e.x));
+    progressX.value = x;
+    isScrubbingSv.value = false;
+    runOnJS(hapSelect)();
+    runOnJS(endScrub)(x);
+  });
+
+  const gesture = Gesture.Exclusive(pan, tap);
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <View
+        style={styles.miniProgressHit}
+        onLayout={(e) => setBarW(e.nativeEvent.layout.width)}
+      >
+        <View style={styles.miniProgressBg}>
+          <Animated.View style={[styles.miniProgressFillAnim, fillStyle]} />
+        </View>
+      </View>
+    </GestureDetector>
+  );
+}
+
 function MiniPlayer({
   current,
   playing,
-  progress,
-  duration,
   liked,
   onToggle,
   onNext,
@@ -525,8 +622,6 @@ function MiniPlayer({
 }: {
   current?: Enriched;
   playing: boolean;
-  progress: number;
-  duration: number;
   liked: boolean;
   onToggle: () => void;
   onNext: () => void;
@@ -540,20 +635,7 @@ function MiniPlayer({
   const artist = current.meta?.artist;
   return (
     <View style={styles.miniWrap}>
-      <Pressable
-        style={styles.miniProgressHit}
-        onPress={(e) => {
-          if (duration <= 0) return;
-          const w = SCREEN_W - spacing.md * 2;
-          const x = Math.max(0, Math.min(w, e.nativeEvent.locationX));
-          hapSelect();
-          onSeek((x / w) * duration);
-        }}
-      >
-        <View style={styles.miniProgressBg}>
-          <View style={[styles.miniProgressFill, { width: `${progress * 100}%` }]} />
-        </View>
-      </Pressable>
+      <MiniProgressBar onSeek={onSeek} />
       <View style={styles.miniCard}>
         <Pressable style={styles.miniTap} onPress={onOpen}>
           <ArtworkThumb uri={current.meta?.artworkUri} size={40} />
@@ -2793,10 +2875,6 @@ export default function App() {
       <MiniPlayer
         current={current}
         playing={playing}
-        progress={
-          progress.duration > 0 ? progress.position / progress.duration : 0
-        }
-        duration={progress.duration}
         liked={currentIsLiked}
         onToggle={togglePlay}
         onNext={next}
@@ -3543,6 +3621,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   miniProgressFill: {
+    height: '100%',
+    backgroundColor: theme.accent,
+    borderRadius: 2,
+  },
+  miniProgressFillAnim: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
     height: '100%',
     backgroundColor: theme.accent,
     borderRadius: 2,
