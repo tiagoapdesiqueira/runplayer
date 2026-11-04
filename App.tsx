@@ -1860,6 +1860,24 @@ export default function App() {
     try {
       await AudioPlayer.cancelCrossfade();
       fadeOutStartedRef.current = false;
+      // "Recentes" only changes the visual order in the library.  Resolve a
+      // manual next action from the context's canonical order, so selecting a
+      // song and promoting it to the top never makes the player follow that
+      // visual reordering.  Shuffle intentionally keeps its native queue.
+      if (!shuffleOn) {
+        const list = songsForContext(context);
+        const nativeTrack = currentId ? null : await AudioPlayer.getActiveTrack();
+        const activeId = currentId ?? nativeTrack?.id;
+        const currentQueueIndex = activeId
+          ? list.findIndex((track) => track.id === activeId)
+          : -1;
+        if (currentQueueIndex >= 0) {
+          const nextIndex = (currentQueueIndex + 1) % list.length;
+          await buildQueue(list, nextIndex);
+          await AudioPlayer.play();
+          return;
+        }
+      }
       await AudioPlayer.skipToNext();
       await AudioPlayer.play();
     } catch {}
