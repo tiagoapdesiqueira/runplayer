@@ -5,7 +5,9 @@ import {
   Dimensions,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -835,105 +837,110 @@ function AddSongsSheet({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
-        <Pressable style={styles.pickerSheet} onPress={() => {}}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.pickerHeader}>
-            <Pressable
-              onPress={onClose}
-              hitSlop={10}
-              style={styles.pickerCancelBtn}
-            >
-              <Text style={styles.pickerCancelText}>Cancelar</Text>
-            </Pressable>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text numberOfLines={1} style={styles.pickerTitle}>
-                Adicionar à {playlistName}
-              </Text>
-              <Text style={styles.pickerSub}>
-                {selected.size}{' '}
-                {selected.size === 1 ? 'selecionada' : 'selecionadas'}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => {
-                if (selected.size === 0) return;
-                hapMedium();
-                onConfirm(Array.from(selected));
-              }}
-              hitSlop={10}
-              disabled={selected.size === 0}
-              style={[
-                styles.pickerDoneBtn,
-                selected.size === 0 && { opacity: 0.4 },
-              ]}
-            >
-              <Text style={styles.pickerDoneText}>Adicionar</Text>
-            </Pressable>
-          </View>
-          {availableSongs.length === 0 ? (
-            <View style={styles.historyEmpty}>
-              <Ionicons
-                name="musical-notes-outline"
-                size={40}
-                color={theme.textDim}
-                style={{ marginBottom: spacing.sm }}
-              />
-              <Text style={styles.historyEmptyText}>
-                Todas as suas músicas já{'\n'}estão nessa playlist.
-              </Text>
-            </View>
-          ) : (
-            <>
-              <View style={styles.searchBar}>
-                <Ionicons
-                  name="search"
-                  size={16}
-                  color={theme.textMuted}
-                  style={{ marginRight: spacing.sm }}
-                />
-                <TextInput
-                  value={query}
-                  onChangeText={setQuery}
-                  placeholder="Buscar música ou artista"
-                  placeholderTextColor={theme.textMuted}
-                  style={styles.searchInput}
-                  returnKeyType="search"
-                />
-                {query.length > 0 && (
-                  <Pressable
-                    hitSlop={10}
-                    onPress={() => setQuery('')}
-                    style={styles.searchClear}
-                  >
-                    <Ionicons
-                      name="close-circle"
-                      size={16}
-                      color={theme.textMuted}
-                    />
-                  </Pressable>
-                )}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+      >
+        <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+          <Pressable style={styles.pickerSheet} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.pickerHeader}>
+              <Pressable
+                onPress={onClose}
+                hitSlop={10}
+                style={styles.pickerCancelBtn}
+              >
+                <Text style={styles.pickerCancelText}>Cancelar</Text>
+              </Pressable>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text numberOfLines={1} style={styles.pickerTitle}>
+                  Adicionar à {playlistName}
+                </Text>
+                <Text style={styles.pickerSub}>
+                  {selected.size}{' '}
+                  {selected.size === 1 ? 'selecionada' : 'selecionadas'}
+                </Text>
               </View>
-              <FlatList
-                data={filtered}
-                keyExtractor={(f) => f.id}
-                style={{ maxHeight: 480 }}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                renderItem={({ item }) => (
-                  <SongRow
-                    item={item}
-                    active={false}
-                    selectionMode
-                    selected={selected.has(item.id)}
-                    onPress={() => toggle(item.id)}
+              <Pressable
+                onPress={() => {
+                  if (selected.size === 0) return;
+                  hapMedium();
+                  onConfirm(Array.from(selected));
+                }}
+                hitSlop={10}
+                disabled={selected.size === 0}
+                style={[
+                  styles.pickerDoneBtn,
+                  selected.size === 0 && { opacity: 0.4 },
+                ]}
+              >
+                <Text style={styles.pickerDoneText}>Adicionar</Text>
+              </Pressable>
+            </View>
+            {availableSongs.length === 0 ? (
+              <View style={styles.historyEmpty}>
+                <Ionicons
+                  name="musical-notes-outline"
+                  size={40}
+                  color={theme.textDim}
+                  style={{ marginBottom: spacing.sm }}
+                />
+                <Text style={styles.historyEmptyText}>
+                  Todas as suas músicas já{'\n'}estão nessa playlist.
+                </Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.searchBar}>
+                  <Ionicons
+                    name="search"
+                    size={16}
+                    color={theme.textMuted}
+                    style={{ marginRight: spacing.sm }}
                   />
-                )}
-              />
-            </>
-          )}
+                  <TextInput
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Buscar música ou artista"
+                    placeholderTextColor={theme.textMuted}
+                    style={styles.searchInput}
+                    returnKeyType="search"
+                  />
+                  {query.length > 0 && (
+                    <Pressable
+                      hitSlop={10}
+                      onPress={() => setQuery('')}
+                      style={styles.searchClear}
+                    >
+                      <Ionicons
+                        name="close-circle"
+                        size={16}
+                        color={theme.textMuted}
+                      />
+                    </Pressable>
+                  )}
+                </View>
+                <FlatList
+                  data={filtered}
+                  keyExtractor={(f) => f.id}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  renderItem={({ item }) => (
+                    <SongRow
+                      item={item}
+                      active={false}
+                      selectionMode
+                      selected={selected.has(item.id)}
+                      onPress={() => toggle(item.id)}
+                    />
+                  )}
+                />
+              </>
+            )}
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -3135,8 +3142,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingTop: spacing.sm,
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxl,
-    maxHeight: '85%',
+    paddingBottom: spacing.lg,
+    flexShrink: 1,
+    minHeight: 300,
+    maxHeight: '90%',
   },
   pickerHeader: {
     flexDirection: 'row',

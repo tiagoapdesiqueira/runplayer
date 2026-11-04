@@ -116,37 +116,34 @@ export async function handoffToTrackPlayer(targetVolume = 1): Promise<void> {
     return;
   }
   try {
-    await new Promise((r) => setTimeout(r, 40));
+    try {
+      await TrackPlayer.setVolume(0);
+    } catch {}
     const status = await localSound.getStatusAsync();
     let posSec = 0;
     if (status.isLoaded && 'positionMillis' in status) {
       posSec = (status.positionMillis ?? 0) / 1000;
     }
-    try {
-      await TrackPlayer.setVolume(0);
-    } catch {}
-    if (posSec > 0.3) {
+    const seekTarget = Math.max(0, posSec + 0.35);
+    if (seekTarget > 0.3) {
       try {
-        await TrackPlayer.seekTo(posSec);
+        await TrackPlayer.seekTo(seekTarget);
       } catch {}
     }
-    const microSteps = 6;
-    const microStepMs = 25;
-    for (let i = 1; i <= microSteps; i++) {
-      const t = i / microSteps;
-      const rntpVol = targetVolume * t;
-      const expoVol = targetVolume * (1 - t);
-      try {
-        await TrackPlayer.setVolume(rntpVol);
-      } catch {}
-      try {
-        await localSound.setVolumeAsync(Math.max(0, expoVol));
-      } catch {}
-      await new Promise((r) => setTimeout(r, microStepMs));
-    }
+    await new Promise((r) => setTimeout(r, 120));
     try {
       await TrackPlayer.setVolume(targetVolume);
     } catch {}
+    const fadeOutSteps = 12;
+    const fadeOutStepMs = 25;
+    for (let i = 1; i <= fadeOutSteps; i++) {
+      const t = i / fadeOutSteps;
+      const expoVol = targetVolume * (1 - t);
+      try {
+        await localSound.setVolumeAsync(Math.max(0, expoVol));
+      } catch {}
+      await new Promise((r) => setTimeout(r, fadeOutStepMs));
+    }
     try {
       await localSound.stopAsync();
       await localSound.unloadAsync();
