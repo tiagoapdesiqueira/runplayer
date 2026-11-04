@@ -4,7 +4,9 @@ const KEY_RESUME = 'runplayer.resume.v1';
 const KEY_GROUP_BY_ARTIST = 'runplayer.groupByArtist.v1';
 const KEY_WORKOUTS_SEEDED = 'runplayer.workoutsSeeded.v1';
 const KEY_META_CACHE = 'runplayer.metaCache.v1';
-const KEY_RECENTLY_PLAYED = 'runplayer.recentlyPlayed.v1';
+// v1 was populated by every native track-change, including automatic playback
+// and the queue prepared at app launch.  Start a clean, click-based history.
+const KEY_RECENTLY_PLAYED = 'runplayer.recentlyPlayed.v2';
 const KEY_CROSSFADE_ENABLED = 'runplayer.crossfadeEnabled.v1';
 const KEY_CROSSFADE_SECONDS = 'runplayer.crossfadeSeconds.v1';
 const RECENT_LIMIT = 15;

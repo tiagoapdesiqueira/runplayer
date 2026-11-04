@@ -1456,7 +1456,6 @@ export default function App() {
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [addSongsToPlaylistId, setAddSongsToPlaylistId] = useState<string | null>(null);
   const [recentlyPlayed, setRecentlyPlayed] = useState<string[]>([]);
-  const [playlistCovers, setPlaylistCovers] = useState<Record<string, string>>({});
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [crossfadeEnabled, setCrossfadeEnabled] = useState(true);
@@ -1573,15 +1572,18 @@ export default function App() {
     setLoading(true);
     try {
       const list = await listMp3s();
-      filesByIdRef.current = new Map(list.map((f) => [f.id, f]));
-      setFiles(list);
+      const enriched: Enriched[] = list.map((f) =>
+        metaCacheRef.current[f.id] ? { ...f, meta: metaCacheRef.current[f.id] } : f
+      );
+      filesByIdRef.current = new Map(enriched.map((f) => [f.id, f]));
+      setFiles(enriched);
       resetVolumeState();
-      await AudioPlayer.setQueue(toTracks(list), 0);
+      await AudioPlayer.setQueue(toTracks(enriched), 0);
       setCurrentId(null);
       setPlaying(false);
       setContext({ kind: 'library' });
       setShuffleOn(false);
-      enrich(list);
+      await enrich(enriched);
       const pls = await loadPlaylists();
       setPlaylists(pls);
     } finally {
@@ -1645,8 +1647,10 @@ export default function App() {
           }
         }
       }
+      // Keep the splash screen visible until files, metadata, artwork and the
+      // derived playlist covers have all settled for this first session.
+      await enrich(list);
       setLoading(false);
-      enrich(list);
     })();
   }, [enrich]);
 
@@ -1678,24 +1682,19 @@ export default function App() {
     });
   }, [sortedFiles, searchQuery]);
 
-  // Metadata and artwork can be rebuilt after an app update.  Recompute covers
-  // as each track is enriched so playlists update in this first session too,
-  // instead of only after reopening the app.
-  useEffect(() => {
+  // Playlist covers are derived directly from the enriched library instead of
+  // being captured only once at startup. This also keeps them ready before the
+  // loading screen is dismissed after an app update.
+  const playlistCovers = useMemo(() => {
     const filesById = new Map(files.map((f) => [f.id, f]));
-    setPlaylistCovers((previous) => {
-      const next: Record<string, string> = {};
-      for (const playlist of playlists) {
-        const artwork = playlist.trackIds
-          .map((id) => filesById.get(id)?.meta?.artworkUri)
-          .find((uri): uri is string => !!uri);
-        if (artwork) next[playlist.id] = artwork;
-      }
-      const same =
-        Object.keys(previous).length === Object.keys(next).length &&
-        Object.entries(next).every(([id, uri]) => previous[id] === uri);
-      return same ? previous : next;
-    });
+    const covers: Record<string, string> = {};
+    for (const playlist of playlists) {
+      const artwork = playlist.trackIds
+        .map((id) => filesById.get(id)?.meta?.artworkUri)
+        .find((uri): uri is string => !!uri);
+      if (artwork) covers[playlist.id] = artwork;
+    }
+    return covers;
   }, [files, playlists]);
 
   useEffect(() => {
@@ -1772,11 +1771,6 @@ export default function App() {
           awaitingTrackProgressRef.current = true;
           const id = ev.trackId;
           setCurrentId(id);
-          setRecentlyPlayed((prev) => {
-            const next = pushRecentlyPlayed(prev, id);
-            saveRecentlyPlayed(next).catch(() => {});
-            return next;
-          });
           const file = filesByIdRef.current.get(id);
           const gain = file?.meta?.gainDb;
           if (ev.isCrossfade) {
@@ -1816,11 +1810,22 @@ export default function App() {
       .filter((f): f is Enriched => !!f);
   };
 
-  const playFromContext = async (ctx: Context, trackId: string) => {
+  const playFromContext = async (
+    ctx: Context,
+    trackId: string,
+    markAsLibrarySelection = false
+  ) => {
     const list = songsForContext(ctx);
     const idx = list.findIndex((f) => f.id === trackId);
     if (idx < 0) return;
     hapSelect();
+    if (markAsLibrarySelection && ctx.kind === 'library') {
+      setRecentlyPlayed((prev) => {
+        const next = pushRecentlyPlayed(prev, trackId);
+        saveRecentlyPlayed(next).catch(() => {});
+        return next;
+      });
+    }
     setContext(ctx);
     setShuffleOn(false);
     await buildQueue(list, idx);
@@ -2313,6 +2318,9 @@ export default function App() {
         <StatusBar barStyle="light-content" />
         <View style={styles.center}>
           <ActivityIndicator size="small" color={theme.accent} />
+          <Text style={[styles.emptyHelp, { marginTop: spacing.md }]}>
+            Carregando suas músicas…
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -2779,7 +2787,7 @@ export default function App() {
                         item={item}
                         active={item.id === currentId}
                         onPress={() =>
-                          playFromContext({ kind: 'library' }, item.id)
+                          playFromContext({ kind: 'library' }, item.id, true)
                         }
                         onLongPress={() => openAddToPlaylist(item)}
                         onMenu={() => openAddToPlaylist(item)}
@@ -2812,7 +2820,7 @@ export default function App() {
                       selected={selectedIds.has(item.id)}
                       onPress={() => {
                         if (selectionMode) toggleSelected(item.id);
-                        else playFromContext({ kind: 'library' }, item.id);
+                        else playFromContext({ kind: 'library' }, item.id, true);
                       }}
                       onLongPress={() => {
                         if (!selectionMode) enterSelectionMode(item.id);
