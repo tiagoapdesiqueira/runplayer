@@ -29,6 +29,8 @@ final class AudioEnginePlayer {
     private var fileA: AVAudioFile?
     private var fileB: AVAudioFile?
     private var activeSlot: Slot = .a
+    private var scheduleGenA: UInt64 = 0
+    private var scheduleGenB: UInt64 = 0
 
     private var currentNode: AVAudioPlayerNode { activeSlot == .a ? nodeA : nodeB }
     private var otherNode: AVAudioPlayerNode { activeSlot == .a ? nodeB : nodeA }
@@ -68,8 +70,8 @@ final class AudioEnginePlayer {
         if let obs = engineConfigObserver {
             NotificationCenter.default.removeObserver(obs)
         }
-        nodeA.stop()
-        nodeB.stop()
+        stopNode(nodeA)
+        stopNode(nodeB)
         engine.stop()
     }
 
@@ -160,6 +162,9 @@ final class AudioEnginePlayer {
     // MARK: - Queue
 
     func setQueue(tracks: [[String: Any]], startIndex: Int) {
+        // A pending crossfade owns both player nodes.  Stop it before replacing
+        // the queue, otherwise its timer can later restore an old track.
+        cancelCrossfade()
         let parsed: [QueuedTrack] = tracks.compactMap { dict in
             guard let id = dict["id"] as? String,
                   let urlStr = dict["url"] as? String,
@@ -178,7 +183,7 @@ final class AudioEnginePlayer {
         if parsed.isEmpty {
             activeIndex = -1
             fileA = nil; fileB = nil
-            nodeA.stop(); nodeB.stop()
+            stopNode(nodeA); stopNode(nodeB)
             return
         }
         activeIndex = idx
@@ -196,7 +201,7 @@ final class AudioEnginePlayer {
             let file = try AVAudioFile(forReading: track.url)
             if slot == .a { fileA = file } else { fileB = file }
             let node = slot == .a ? nodeA : nodeB
-            node.stop()
+            stopNode(node)
             node.volume = 1.0
             scheduleWholeFile(file, on: node)
             return file
@@ -206,10 +211,34 @@ final class AudioEnginePlayer {
         }
     }
 
+    private func bumpGeneration(for node: AVAudioPlayerNode) -> UInt64 {
+        if node === nodeA {
+            scheduleGenA &+= 1
+            return scheduleGenA
+        } else {
+            scheduleGenB &+= 1
+            return scheduleGenB
+        }
+    }
+
+    private func isCurrentGeneration(_ gen: UInt64, on node: AVAudioPlayerNode) -> Bool {
+        if node === nodeA { return gen == scheduleGenA }
+        return gen == scheduleGenB
+    }
+
+    @discardableResult
+    private func stopNode(_ node: AVAudioPlayerNode) -> AVAudioPlayerNode {
+        _ = bumpGeneration(for: node)
+        node.stop()
+        return node
+    }
+
     private func scheduleWholeFile(_ file: AVAudioFile, on node: AVAudioPlayerNode) {
+        let gen = bumpGeneration(for: node)
         node.scheduleFile(file, at: nil) { [weak self, weak node] in
             DispatchQueue.main.async {
                 guard let self = self, let node = node else { return }
+                guard self.isCurrentGeneration(gen, on: node) else { return }
                 self.handleScheduledPlaybackEnd(on: node)
             }
         }
@@ -250,28 +279,41 @@ final class AudioEnginePlayer {
 
     func seek(to position: Double) {
         guard let file = currentFile else { return }
+        // Seeking is an explicit transport action: it supersedes a pending
+        // transition to the next track.
+        cancelCrossfade()
         let sampleRate = file.processingFormat.sampleRate
-        let targetFrame = max(0, Int64(position * sampleRate))
         let totalFrames = file.length
-        let startFrame = min(AVAudioFramePosition(targetFrame), totalFrames - 1)
-        let frames = AVAudioFrameCount(max(0, totalFrames - startFrame))
+        let maxFrame = max(0, totalFrames - 1)
+        let targetFrame = max(0, Int64(position * sampleRate))
+        let startFrame = min(AVAudioFramePosition(targetFrame), maxFrame)
+        // Guard against seeking so close to the end that we would schedule
+        // zero or just a handful of frames (which triggers immediate completion
+        // and cascading auto-advance).
+        let minFrames: AVAudioFramePosition = AVAudioFramePosition(sampleRate * 0.25)
+        let clampedStart = min(startFrame, max(0, totalFrames - minFrames))
+        let frames = AVAudioFrameCount(max(0, totalFrames - clampedStart))
+        guard frames > 0 else { return }
 
-        currentNode.stop()
-        currentNode.scheduleSegment(
+        let node = currentNode
+        stopNode(node)
+        let gen = bumpGeneration(for: node)
+        node.scheduleSegment(
             file,
-            startingFrame: startFrame,
+            startingFrame: clampedStart,
             frameCount: frames,
             at: nil
-        ) { [weak self, weak node = currentNode] in
+        ) { [weak self, weak node] in
             DispatchQueue.main.async {
                 guard let self = self, let node = node else { return }
+                guard self.isCurrentGeneration(gen, on: node) else { return }
                 self.handleScheduledPlaybackEnd(on: node)
             }
         }
 
-        pausedPosition = Double(startFrame) / sampleRate
+        pausedPosition = Double(clampedStart) / sampleRate
         if _isPlaying {
-            currentNode.play()
+            node.play()
             playAnchorHostTime = CACurrentMediaTime()
             seekOffset = pausedPosition
         }
@@ -318,7 +360,7 @@ final class AudioEnginePlayer {
         cancelCrossfade()
         activeIndex = index
         // Reset volume on both nodes
-        nodeA.stop(); nodeB.stop()
+        stopNode(nodeA); stopNode(nodeB)
         nodeA.volume = 1.0; nodeB.volume = 1.0
         loadTrack(at: index, into: activeSlot)
         pausedPosition = 0
@@ -339,7 +381,7 @@ final class AudioEnginePlayer {
     // MARK: - Crossfade
 
     func startCrossfade(durationSec: Double) {
-        guard !queue.isEmpty else { return }
+        guard _isPlaying, durationSec > 0, !queue.isEmpty, activeIndex >= 0 else { return }
         let nextIndex = activeIndex + 1 < queue.count ? activeIndex + 1 : 0
         if nextIndex == activeIndex { return }
 
@@ -368,8 +410,9 @@ final class AudioEnginePlayer {
             nextRef.volume = inVol
             if t >= 1 {
                 timer.invalidate()
+                self.crossfadeTimer = nil
                 // Swap: next becomes current
-                nodeRef.stop()
+                self.stopNode(nodeRef)
                 nodeRef.volume = 1.0
                 self.activeSlot = otherSlot
                 self.activeIndex = nextIndexCaptured
@@ -388,7 +431,7 @@ final class AudioEnginePlayer {
     func cancelCrossfade() {
         crossfadeTimer?.invalidate()
         crossfadeTimer = nil
-        otherNode.stop()
+        stopNode(otherNode)
         otherNode.volume = 1.0
         currentNode.volume = 1.0
     }

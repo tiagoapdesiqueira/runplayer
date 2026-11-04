@@ -1862,6 +1862,9 @@ export default function App() {
 
   const seek = async (pos: number) => {
     try {
+      // The native seek cancels any active crossfade.  Allow the transition to
+      // be scheduled again later if the user seeks back near the end.
+      fadeOutStartedRef.current = false;
       await AudioPlayer.seekTo(pos);
     } catch {}
   };
