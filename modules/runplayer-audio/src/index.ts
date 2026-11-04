@@ -13,6 +13,7 @@ declare class RunplayerAudioModule extends NativeModule<RunplayerAudioEvents> {
   skipToIndex(index: number): Promise<void>;
   skipToNext(): Promise<void>;
   skipToPrevious(): Promise<void>;
+  removeTracks(indices: number[]): Promise<void>;
   setVolume(volume: number): void;
   startCrossfade(durationSec: number): Promise<void>;
   cancelCrossfade(): Promise<void>;

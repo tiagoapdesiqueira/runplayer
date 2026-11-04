@@ -52,6 +52,10 @@ public class RunplayerAudioModule: Module {
             self.player?.skipToNext()
         }
 
+        AsyncFunction("removeTracks") { (indices: [Int]) in
+            self.player?.removeTracks(at: indices)
+        }
+
         AsyncFunction("skipToPrevious") {
             self.player?.skipToPrevious()
         }

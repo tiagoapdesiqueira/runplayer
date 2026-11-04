@@ -1,4 +1,4 @@
-import TrackPlayer from 'react-native-track-player';
+import { AudioPlayer } from './audioPlayer';
 
 const FADE_IN_MS = 350;
 const FADE_OUT_MS = 1500;
@@ -25,7 +25,7 @@ async function animate(from: number, to: number, durationMs: number): Promise<vo
       const t = Math.min(1, i / STEPS);
       const v = from + (to - from) * t;
       currentVolume = v;
-      TrackPlayer.setVolume(Math.max(0, Math.min(1, v))).catch(() => {});
+      AudioPlayer.setVolume(Math.max(0, Math.min(1, v))).catch(() => {});
       if (t >= 1) {
         cancelFade();
         resolve();
@@ -45,14 +45,14 @@ export async function setTargetVolume(gainDb: number | undefined): Promise<void>
   const mult = gainToMultiplier(gainDb);
   cancelFade();
   currentVolume = mult;
-  await TrackPlayer.setVolume(mult).catch(() => {});
+  await AudioPlayer.setVolume(mult).catch(() => {});
 }
 
 export async function fadeInForTrack(gainDb: number | undefined): Promise<void> {
   fadingOut = false;
   const target = gainToMultiplier(gainDb);
   currentVolume = 0;
-  await TrackPlayer.setVolume(0).catch(() => {});
+  await AudioPlayer.setVolume(0).catch(() => {});
   await animate(0, target, FADE_IN_MS);
 }
 

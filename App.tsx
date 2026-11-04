@@ -37,16 +37,15 @@ import { useFonts } from 'expo-font';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getColors } from 'react-native-image-colors';
-import TrackPlayer, {
-  AppKilledPlaybackBehavior,
-  Capability,
-  Event,
+import {
+  AudioPlayer,
+  AudioEvent,
   RepeatMode,
-  State,
+  RepeatModeValue,
   Track,
-  useProgress,
-  useTrackPlayerEvents,
-} from 'react-native-track-player';
+  useAudioEvents,
+  useAudioProgress,
+} from './audioPlayer';
 
 import { readId3, Metadata } from './metadata';
 import {
@@ -66,12 +65,6 @@ import {
   saveRecentlyPlayed,
   saveResume,
 } from './storage';
-import {
-  cancelCrossfade,
-  handoffToTrackPlayer,
-  isCrossfadeActive,
-  startCrossfade,
-} from './crossfade';
 import {
   defaultPalette,
   ff,
@@ -138,35 +131,8 @@ const hapSelect = () => {
 };
 
 async function setupPlayer() {
-  try {
-    await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
-  } catch (e: any) {
-    if (!String(e?.message ?? e).includes('already been initialized')) throw e;
-  }
-  await TrackPlayer.updateOptions({
-    android: {
-      appKilledPlaybackBehavior:
-        AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
-    },
-    capabilities: [
-      Capability.Play,
-      Capability.Pause,
-      Capability.SkipToNext,
-      Capability.SkipToPrevious,
-      Capability.SeekTo,
-      Capability.Stop,
-    ],
-    compactCapabilities: [
-      Capability.Play,
-      Capability.Pause,
-      Capability.SkipToNext,
-      Capability.SkipToPrevious,
-    ],
-    progressUpdateEventInterval: 1,
-  });
-  try {
-    await TrackPlayer.setRepeatMode(RepeatMode.Queue);
-  } catch {}
+  await AudioPlayer.setupPlayer();
+  await AudioPlayer.setRepeatMode(RepeatMode.Queue);
 }
 
 async function ensureFolderVisible(): Promise<void> {
@@ -203,7 +169,7 @@ function toTracks(list: Enriched[]): Track[] {
     url: f.uri,
     title: f.meta?.title || f.name,
     artist: f.meta?.artist || 'Desconhecido',
-    artwork: f.meta?.artworkUri,
+    artworkUri: f.meta?.artworkUri,
   }));
 }
 
@@ -513,7 +479,7 @@ function PlaylistRow({
 }
 
 function MiniProgressBar({ onSeek }: { onSeek: (pos: number) => void }) {
-  const prog = useProgress(400);
+  const prog = useAudioProgress(400);
   const duration = prog.duration;
   const position = prog.position;
 
@@ -1139,7 +1105,7 @@ function NpProgressBar({
   visible: boolean;
   onSeek: (pos: number) => void;
 }) {
-  const prog = useProgress(visible ? 300 : 2000);
+  const prog = useAudioProgress(visible ? 300 : 2000);
   const position = prog.position;
   const duration = prog.duration;
 
@@ -1288,7 +1254,7 @@ function NowPlaying({
   palette: Palette;
   playing: boolean;
   shuffleOn: boolean;
-  repeatMode: RepeatMode;
+  repeatMode: RepeatModeValue;
   liked: boolean;
   onToggle: () => void;
   onNext: () => void;
@@ -1481,7 +1447,7 @@ export default function App() {
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutEntry[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shuffleOn, setShuffleOn] = useState(false);
-  const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.Queue);
+  const [repeatMode, setRepeatMode] = useState<RepeatModeValue>(RepeatMode.Queue);
   const [groupByArtist, setGroupByArtist] = useState(false);
   const [expandedArtists, setExpandedArtists] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
@@ -1507,7 +1473,7 @@ export default function App() {
   const workoutActiveRef = useRef(false);
   const fadeOutStartedRef = useRef(false);
 
-  const progress = useProgress(500);
+  const progress = useAudioProgress(500);
 
   const persistPlaylists = useCallback((next: Playlist[]) => {
     setPlaylists(next);
@@ -1573,10 +1539,10 @@ export default function App() {
             prev.map((f) => (f.id === file.id ? { ...f, meta } : f))
           );
           filesByIdRef.current.set(file.id, { ...file, meta });
-          const queue = await TrackPlayer.getQueue();
+          const queue = await AudioPlayer.getQueue();
           const idx = queue.findIndex((t) => t.id === file.id);
           if (idx >= 0) {
-            await TrackPlayer.updateMetadataForTrack(idx, {
+            AudioPlayer.updateMetadataForTrackIndex(idx, {
               title: meta.title || file.name,
               artist: meta.artist || 'Desconhecido',
               artwork: meta.artworkUri,
@@ -1590,10 +1556,8 @@ export default function App() {
 
   const buildQueue = useCallback(
     async (list: Enriched[], startIndex: number) => {
-      await TrackPlayer.reset();
       resetVolumeState();
-      await TrackPlayer.add(toTracks(list));
-      if (startIndex > 0) await TrackPlayer.skip(startIndex);
+      await AudioPlayer.setQueue(toTracks(list), startIndex);
     },
     []
   );
@@ -1604,9 +1568,8 @@ export default function App() {
       const list = await listMp3s();
       filesByIdRef.current = new Map(list.map((f) => [f.id, f]));
       setFiles(list);
-      await TrackPlayer.reset();
       resetVolumeState();
-      if (list.length > 0) await TrackPlayer.add(toTracks(list));
+      await AudioPlayer.setQueue(toTracks(list), 0);
       setCurrentId(null);
       setPlaying(false);
       setContext({ kind: 'library' });
@@ -1673,15 +1636,14 @@ export default function App() {
       const cfSec = await loadCrossfadeSeconds();
       setCrossfadeSeconds(cfSec);
       if (enriched.length > 0) {
-        await TrackPlayer.reset();
-        await TrackPlayer.add(toTracks(enriched));
+        await AudioPlayer.setQueue(toTracks(enriched), 0);
         const resume = await loadResume();
         if (resume) {
           const idx = enriched.findIndex((f) => f.id === resume.trackId);
           if (idx >= 0) {
             try {
-              await TrackPlayer.skip(idx);
-              if (resume.position > 2) await TrackPlayer.seekTo(resume.position);
+              await AudioPlayer.skip(idx);
+              if (resume.position > 2) await AudioPlayer.seekTo(resume.position);
               setCurrentId(resume.trackId);
             } catch {}
           }
@@ -1741,25 +1703,9 @@ export default function App() {
     if (!playing || !progress.duration || !currentId) return;
     const remaining = progress.duration - progress.position;
     if (remaining <= 0 || remaining > crossfadeSeconds + 0.3) return;
-    if (fadeOutStartedRef.current || isCrossfadeActive()) return;
-    (async () => {
-      try {
-        const queue = await TrackPlayer.getQueue();
-        const idx = await TrackPlayer.getActiveTrackIndex();
-        if (idx == null) return;
-        const nextIdx = idx + 1 < queue.length ? idx + 1 : 0;
-        if (nextIdx === idx) return;
-        const nextTrack = queue[nextIdx];
-        const nextUri = String(nextTrack?.url ?? '');
-        if (!nextUri) return;
-        const nextMeta = filesByIdRef.current.get(String(nextTrack.id))?.meta;
-        const nextGainMult = nextMeta?.gainDb != null
-          ? Math.pow(10, Math.max(-12, Math.min(0, -14 - nextMeta.gainDb)) / 20)
-          : 1;
-        fadeOutStartedRef.current = true;
-        startCrossfade(nextUri, crossfadeSeconds * 1000, nextGainMult).catch(() => {});
-      } catch {}
-    })();
+    if (fadeOutStartedRef.current) return;
+    fadeOutStartedRef.current = true;
+    AudioPlayer.startCrossfade(crossfadeSeconds).catch(() => {});
   }, [progress.position, progress.duration, playing, currentId, crossfadeEnabled, crossfadeSeconds]);
 
 
@@ -1775,52 +1721,51 @@ export default function App() {
     if (!workoutActiveRef.current) return;
     if (!moving) {
       if (playingRef.current) {
-        TrackPlayer.pause().catch(() => {});
+        AudioPlayer.pause().catch(() => {});
         autoPausedRef.current = true;
       }
     } else {
       if (autoPausedRef.current && !playingRef.current) {
-        TrackPlayer.play().catch(() => {});
+        AudioPlayer.play().catch(() => {});
         autoPausedRef.current = false;
       }
     }
   }, []);
 
-  useTrackPlayerEvents(
-    [Event.PlaybackState, Event.PlaybackActiveTrackChanged],
-    async (ev) => {
-      if (ev.type === Event.PlaybackState) {
-        setPlaying(ev.state === State.Playing);
-      }
-      if (ev.type === Event.PlaybackActiveTrackChanged) {
-        fadeOutStartedRef.current = false;
-        const idx = await TrackPlayer.getActiveTrackIndex();
-        if (idx != null) {
-          const t = await TrackPlayer.getTrack(idx);
-          if (t?.id) {
-            const id = String(t.id);
-            setCurrentId(id);
-            setRecentlyPlayed((prev) => {
-              const next = pushRecentlyPlayed(prev, id);
-              saveRecentlyPlayed(next).catch(() => {});
-              return next;
-            });
-            const file = filesByIdRef.current.get(id);
-            const gain = file?.meta?.gainDb;
-            const mult = gain != null
-              ? Math.pow(10, Math.max(-12, Math.min(0, -14 - gain)) / 20)
-              : 1;
-            if (isCrossfadeActive()) {
-              handoffToTrackPlayer(mult).catch(() => {});
-            } else if (ev.index !== ev.lastIndex && ev.lastIndex != null) {
-              fadeInForTrack(gain).catch(() => {});
-            } else {
-              setTargetVolume(gain).catch(() => {});
-            }
+  useAudioEvents(
+    useCallback(
+      (ev: AudioEvent) => {
+        if (ev.type === 'stateChanged') {
+          setPlaying(ev.isPlaying);
+        }
+        if (ev.type === 'trackChanged') {
+          fadeOutStartedRef.current = false;
+          const id = ev.trackId;
+          setCurrentId(id);
+          setRecentlyPlayed((prev) => {
+            const next = pushRecentlyPlayed(prev, id);
+            saveRecentlyPlayed(next).catch(() => {});
+            return next;
+          });
+          const file = filesByIdRef.current.get(id);
+          const gain = file?.meta?.gainDb;
+          if (ev.index !== ev.lastIndex && ev.lastIndex >= 0) {
+            fadeInForTrack(gain).catch(() => {});
+          } else {
+            setTargetVolume(gain).catch(() => {});
+          }
+          if (file) {
+            AudioPlayer.setNowPlayingMetadata(
+              file.meta?.title || file.name,
+              file.meta?.artist || 'Desconhecido',
+              file.meta?.artworkUri ?? null,
+              file.meta?.durationSec ?? 0
+            );
           }
         }
-      }
-    }
+      },
+      []
+    )
   );
 
   const songsForContext = (ctx: Context): Enriched[] => {
@@ -1841,7 +1786,7 @@ export default function App() {
     setContext(ctx);
     setShuffleOn(false);
     await buildQueue(list, idx);
-    await TrackPlayer.play();
+    await AudioPlayer.play();
   };
 
   const togglePlay = async () => {
@@ -1851,30 +1796,30 @@ export default function App() {
       return;
     }
     if (playing) {
-      if (isCrossfadeActive()) await cancelCrossfade();
-      await TrackPlayer.pause();
+      await AudioPlayer.cancelCrossfade();
+      await AudioPlayer.pause();
     } else {
       fadeOutStartedRef.current = false;
       setTargetVolume(current?.meta?.gainDb).catch(() => {});
-      await TrackPlayer.play();
+      await AudioPlayer.play();
     }
   };
 
   const next = async () => {
     try {
-      if (isCrossfadeActive()) await cancelCrossfade();
+      await AudioPlayer.cancelCrossfade();
       fadeOutStartedRef.current = false;
-      await TrackPlayer.skipToNext();
-      await TrackPlayer.play();
+      await AudioPlayer.skipToNext();
+      await AudioPlayer.play();
     } catch {}
   };
 
   const prev = async () => {
     try {
-      if (isCrossfadeActive()) await cancelCrossfade();
+      await AudioPlayer.cancelCrossfade();
       fadeOutStartedRef.current = false;
-      await TrackPlayer.skipToPrevious();
-      await TrackPlayer.play();
+      await AudioPlayer.skipToPrevious();
+      await AudioPlayer.play();
     } catch {}
   };
 
@@ -1888,7 +1833,7 @@ export default function App() {
       const cur = currentId;
       const idx = cur ? list.findIndex((f) => f.id === cur) : 0;
       await buildQueue(list, Math.max(0, idx));
-      if (playingRef.current) await TrackPlayer.play();
+      if (playingRef.current) await AudioPlayer.play();
       return;
     }
     const shuffled = [...list];
@@ -1898,7 +1843,7 @@ export default function App() {
     }
     setShuffleOn(true);
     await buildQueue(shuffled, 0);
-    await TrackPlayer.play();
+    await AudioPlayer.play();
   };
 
   const cycleRepeat = async () => {
@@ -1910,14 +1855,14 @@ export default function App() {
         ? RepeatMode.Track
         : RepeatMode.Off;
     try {
-      await TrackPlayer.setRepeatMode(nextMode);
+      await AudioPlayer.setRepeatMode(nextMode);
       setRepeatMode(nextMode);
     } catch {}
   };
 
   const seek = async (pos: number) => {
     try {
-      await TrackPlayer.seekTo(pos);
+      await AudioPlayer.seekTo(pos);
     } catch {}
   };
 
@@ -2057,10 +2002,10 @@ export default function App() {
       filesByIdRef.current.delete(song.id);
       setFiles(nextFiles);
       try {
-        const queue = await TrackPlayer.getQueue();
+        const queue = await AudioPlayer.getQueue();
         const idxInQueue = queue.findIndex((t) => String(t.id) === song.id);
         if (idxInQueue >= 0) {
-          await TrackPlayer.remove([idxInQueue]);
+          await AudioPlayer.removeTracks([idxInQueue]);
         }
       } catch {}
       if (isCurrent) {
@@ -2114,13 +2059,13 @@ export default function App() {
       filesByIdRef.current = new Map(nextFiles.map((f) => [f.id, f]));
       setFiles(nextFiles);
       try {
-        const queue = await TrackPlayer.getQueue();
+        const queue = await AudioPlayer.getQueue();
         const toRemove: number[] = [];
         queue.forEach((t, i) => {
           if (idSet.has(String(t.id))) toRemove.push(i);
         });
         if (toRemove.length > 0) {
-          await TrackPlayer.remove(toRemove);
+          await AudioPlayer.removeTracks(toRemove);
         }
       } catch {}
       if (currentWillBeDeleted) {
@@ -2974,7 +2919,7 @@ export default function App() {
         onToggleCrossfade={(v) => {
           setCrossfadeEnabled(v);
           saveCrossfadeEnabled(v).catch(() => {});
-          if (!v && isCrossfadeActive()) cancelCrossfade().catch(() => {});
+          if (!v) AudioPlayer.cancelCrossfade().catch(() => {});
         }}
         onChangeCrossfadeSeconds={(n) => {
           setCrossfadeSeconds(n);

@@ -294,6 +294,25 @@ final class AudioEnginePlayer {
         skip(to: prev)
     }
 
+    func removeTracks(at indices: [Int]) {
+        let drop = Set(indices)
+        var newQueue: [QueuedTrack] = []
+        var newActiveIndex: Int = activeIndex
+        for (i, track) in queue.enumerated() {
+            if drop.contains(i) {
+                if i < activeIndex {
+                    newActiveIndex -= 1
+                } else if i == activeIndex {
+                    newActiveIndex = min(newActiveIndex, queue.count - drop.count - 1)
+                }
+            } else {
+                newQueue.append(track)
+            }
+        }
+        queue = newQueue
+        activeIndex = max(-1, min(newActiveIndex, newQueue.count - 1))
+    }
+
     func skip(to index: Int) {
         guard index >= 0 && index < queue.count else { return }
         cancelCrossfade()
