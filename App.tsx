@@ -1453,6 +1453,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [playlistSelectionMode, setPlaylistSelectionMode] = useState(false);
+  const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<Set<string>>(new Set());
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [addSongsToPlaylistId, setAddSongsToPlaylistId] = useState<string | null>(null);
   const [recentlyPlayed, setRecentlyPlayed] = useState<string[]>([]);
@@ -1461,6 +1463,12 @@ export default function App() {
   const [crossfadeEnabled, setCrossfadeEnabled] = useState(true);
   const [crossfadeSeconds, setCrossfadeSeconds] = useState(6);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (viewingPlaylistId) return;
+    setPlaylistSelectionMode(false);
+    setSelectedPlaylistIds(new Set());
+  }, [viewingPlaylistId]);
 
   const didSetupRef = useRef(false);
   const lastSavedRef = useRef<{ id: string; pos: number } | null>(null);
@@ -2034,6 +2042,55 @@ export default function App() {
     persistPlaylists(next);
   };
 
+  const enterPlaylistSelectionMode = () => {
+    hapMedium();
+    setPlaylistSelectionMode(true);
+    setSelectedPlaylistIds(new Set());
+  };
+
+  const cancelPlaylistSelection = () => {
+    hapLight();
+    setPlaylistSelectionMode(false);
+    setSelectedPlaylistIds(new Set());
+  };
+
+  const togglePlaylistSelected = (id: string) => {
+    hapSelect();
+    setSelectedPlaylistIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const confirmRemoveSelectedFromPlaylist = (playlist: Playlist) => {
+    const ids = Array.from(selectedPlaylistIds);
+    if (ids.length === 0) return;
+    Alert.alert(
+      `Remover ${ids.length} ${ids.length === 1 ? 'música' : 'músicas'} da playlist?`,
+      'Os arquivos continuarão na sua biblioteca.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Remover',
+          style: 'destructive',
+          onPress: () => {
+            const selected = new Set(ids);
+            const next = playlists.map((item) =>
+              item.id === playlist.id
+                ? { ...item, trackIds: item.trackIds.filter((id) => !selected.has(id)) }
+                : item
+            );
+            persistPlaylists(next);
+            setPlaylistSelectionMode(false);
+            setSelectedPlaylistIds(new Set());
+          },
+        },
+      ]
+    );
+  };
+
   const deleteSongFile = async (song: Enriched) => {
     try {
       const isCurrent = currentId === song.id;
@@ -2384,8 +2441,12 @@ export default function App() {
               <Pressable
                 hitSlop={10}
                 onPress={() => {
-                  hapLight();
-                  setViewingPlaylistId(null);
+                  if (playlistSelectionMode) {
+                    cancelPlaylistSelection();
+                  } else {
+                    hapLight();
+                    setViewingPlaylistId(null);
+                  }
                 }}
                 style={styles.headerIconBtn}
               >
@@ -2393,41 +2454,70 @@ export default function App() {
               </Pressable>
               <View style={styles.headerCenter}>
                 <Text style={styles.headerKicker}>
-                  PLAYLIST · {viewingPlaylistSongs.length}{' '}
-                  {viewingPlaylistSongs.length === 1 ? 'música' : 'músicas'}
-                  {sumDuration(viewingPlaylistSongs) > 0
-                    ? ` · ${fmtTotalDuration(sumDuration(viewingPlaylistSongs))}`
-                    : ''}
+                  {playlistSelectionMode
+                    ? `${selectedPlaylistIds.size} ${
+                        selectedPlaylistIds.size === 1 ? 'selecionada' : 'selecionadas'
+                      }`
+                    : `PLAYLIST · ${viewingPlaylistSongs.length} ${
+                        viewingPlaylistSongs.length === 1 ? 'música' : 'músicas'
+                      }${
+                        sumDuration(viewingPlaylistSongs) > 0
+                          ? ` · ${fmtTotalDuration(sumDuration(viewingPlaylistSongs))}`
+                          : ''
+                      }`}
                 </Text>
                 <Text numberOfLines={1} style={styles.headerTitle}>
                   {viewingPlaylist.name}
                 </Text>
               </View>
-              <Pressable
-                hitSlop={10}
-                onPress={() => {
-                  hapLight();
-                  setAddSongsToPlaylistId(viewingPlaylist.id);
-                }}
-                style={styles.headerIconBtn}
-              >
-                <Ionicons name="add" size={22} color={theme.text} />
-              </Pressable>
-              <Pressable
-                hitSlop={10}
-                onPress={() => {
-                  hapLight();
-                  if (viewingPlaylistSongs.length > 0) {
-                    playFromContext(
-                      { kind: 'playlist', id: viewingPlaylist.id },
-                      viewingPlaylistSongs[0].id
-                    );
-                  }
-                }}
-                style={styles.headerIconBtnAccent}
-              >
-                <Ionicons name="play" size={14} color={theme.accentDark} />
-              </Pressable>
+              {playlistSelectionMode ? (
+                <Pressable
+                  hitSlop={10}
+                  onPress={() => confirmRemoveSelectedFromPlaylist(viewingPlaylist)}
+                  disabled={selectedPlaylistIds.size === 0}
+                  style={[
+                    styles.headerIconBtn,
+                    selectedPlaylistIds.size === 0 && { opacity: 0.4 },
+                  ]}
+                >
+                  <Ionicons name="remove-circle-outline" size={22} color={theme.accent} />
+                </Pressable>
+              ) : (
+                <>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => {
+                      hapLight();
+                      setAddSongsToPlaylistId(viewingPlaylist.id);
+                    }}
+                    style={styles.headerIconBtn}
+                  >
+                    <Ionicons name="add" size={22} color={theme.text} />
+                  </Pressable>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={enterPlaylistSelectionMode}
+                    style={styles.headerIconBtn}
+                  >
+                    <Ionicons name="checkmark-done-outline" size={20} color={theme.text} />
+                  </Pressable>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => {
+                      hapLight();
+                      if (viewingPlaylistSongs.length > 0) {
+                        playFromContext(
+                          { kind: 'playlist', id: viewingPlaylist.id },
+                          viewingPlaylistSongs[0].id
+                        );
+                      }
+                    }}
+                    style={styles.headerIconBtnAccent}
+                  >
+                    <Ionicons name="play" size={14} color={theme.accentDark} />
+                  </Pressable>
+                </>
+              )}
             </View>
             {viewingPlaylistSongs.length === 0 ? (
               <View style={styles.center}>
@@ -2461,6 +2551,7 @@ export default function App() {
                   />
                 }
                 onDragEnd={({ data }) => {
+                  if (playlistSelectionMode) return;
                   const newOrder = data.map((f) => f.id);
                   const next = playlists.map((p) =>
                     p.id === viewingPlaylist.id
@@ -2479,17 +2570,31 @@ export default function App() {
                     <SongRow
                       item={item}
                       active={item.id === currentId}
-                      onPress={() =>
-                        playFromContext(
-                          { kind: 'playlist', id: viewingPlaylist.id },
-                          item.id
-                        )
-                      }
-                      onLongPress={() => {
-                        hapMedium();
-                        drag();
+                      selectionMode={playlistSelectionMode}
+                      selected={selectedPlaylistIds.has(item.id)}
+                      onPress={() => {
+                        if (playlistSelectionMode) {
+                          togglePlaylistSelected(item.id);
+                        } else {
+                          playFromContext(
+                            { kind: 'playlist', id: viewingPlaylist.id },
+                            item.id
+                          );
+                        }
                       }}
-                      onMenu={() => openSongMenu(item, viewingPlaylist.id)}
+                      onLongPress={() => {
+                        if (playlistSelectionMode) {
+                          togglePlaylistSelected(item.id);
+                        } else {
+                          hapMedium();
+                          drag();
+                        }
+                      }}
+                      onMenu={
+                        playlistSelectionMode
+                          ? undefined
+                          : () => openSongMenu(item, viewingPlaylist.id)
+                      }
                     />
                   </ScaleDecorator>
                 )}
