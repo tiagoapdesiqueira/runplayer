@@ -162,6 +162,12 @@ final class AudioEnginePlayer {
     // MARK: - Queue
 
     func setQueue(tracks: [[String: Any]], startIndex: Int) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.setQueue(tracks: tracks, startIndex: startIndex)
+            }
+            return
+        }
         // A pending crossfade owns both player nodes.  Stop it before replacing
         // the queue, otherwise its timer can later restore an old track.
         cancelCrossfade()
@@ -253,6 +259,10 @@ final class AudioEnginePlayer {
     // MARK: - Transport
 
     func play() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.play() }
+            return
+        }
         tryStartEngine()
         if currentFile == nil, activeIndex >= 0 {
             loadTrack(at: activeIndex, into: activeSlot)
@@ -269,6 +279,10 @@ final class AudioEnginePlayer {
     }
 
     func pause() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.pause() }
+            return
+        }
         pausedPosition = currentPosition
         currentNode.pause()
         _isPlaying = false
@@ -278,6 +292,10 @@ final class AudioEnginePlayer {
     }
 
     func seek(to position: Double) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.seek(to: position) }
+            return
+        }
         guard let file = currentFile else { return }
         // Seeking is an explicit transport action: it supersedes a pending
         // transition to the next track.
@@ -321,12 +339,20 @@ final class AudioEnginePlayer {
     }
 
     func skipToNext() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.skipToNext() }
+            return
+        }
         guard !queue.isEmpty else { return }
         let next = activeIndex + 1 < queue.count ? activeIndex + 1 : 0
         skip(to: next)
     }
 
     func skipToPrevious() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.skipToPrevious() }
+            return
+        }
         guard !queue.isEmpty else { return }
         if currentPosition > 3.0 {
             seek(to: 0)
@@ -337,6 +363,10 @@ final class AudioEnginePlayer {
     }
 
     func removeTracks(at indices: [Int]) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.removeTracks(at: indices) }
+            return
+        }
         let drop = Set(indices)
         var newQueue: [QueuedTrack] = []
         var newActiveIndex: Int = activeIndex
@@ -356,6 +386,10 @@ final class AudioEnginePlayer {
     }
 
     func skip(to index: Int) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.skip(to: index) }
+            return
+        }
         guard index >= 0 && index < queue.count else { return }
         cancelCrossfade()
         activeIndex = index
@@ -374,6 +408,10 @@ final class AudioEnginePlayer {
     }
 
     func setVolume(_ volume: Float) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.setVolume(volume) }
+            return
+        }
         let v = max(0, min(1, volume))
         currentNode.volume = v
     }
@@ -381,6 +419,12 @@ final class AudioEnginePlayer {
     // MARK: - Crossfade
 
     func startCrossfade(durationSec: Double) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.startCrossfade(durationSec: durationSec)
+            }
+            return
+        }
         guard _isPlaying, durationSec > 0, !queue.isEmpty, activeIndex >= 0 else { return }
         let nextIndex = activeIndex + 1 < queue.count ? activeIndex + 1 : 0
         if nextIndex == activeIndex { return }
@@ -400,7 +444,7 @@ final class AudioEnginePlayer {
         let nextIndexCaptured = nextIndex
         let nextFileCaptured = nextFile
 
-        crossfadeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
             guard let self = self else { timer.invalidate(); return }
             let elapsed = CACurrentMediaTime() - startHost
             let t = min(1, elapsed / durationSec)
@@ -426,9 +470,15 @@ final class AudioEnginePlayer {
                 self.pushNowPlaying()
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        crossfadeTimer = timer
     }
 
     func cancelCrossfade() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.cancelCrossfade() }
+            return
+        }
         crossfadeTimer?.invalidate()
         crossfadeTimer = nil
         stopNode(otherNode)
@@ -453,10 +503,12 @@ final class AudioEnginePlayer {
 
     private func startPositionTimer() {
         positionTimer?.invalidate()
-        positionTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.delegate?.playerDidChangePosition(self.currentPosition, duration: self.currentDuration)
         }
+        RunLoop.main.add(timer, forMode: .common)
+        positionTimer = timer
     }
 
     private func stopPositionTimer() {
