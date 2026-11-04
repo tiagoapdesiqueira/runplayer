@@ -1,0 +1,7 @@
+{
+  "name": "runplayer-audio",
+  "version": "1.0.0",
+  "description": "Native AVAudioEngine-based player with true crossfade",
+  "main": "src/index.ts",
+  "private": true
+}
