@@ -1484,13 +1484,19 @@ export default function App() {
   const toggleGroupByArtist = useCallback(() => {
     hapLight();
     setTab('songs');
+    // Grouped results and a text search are mutually exclusive.  Returning to
+    // artist mode intentionally restores the full grouped library.
+    if (!groupByArtist) {
+      setSearchOpen(false);
+      setSearchQuery('');
+    }
     setGroupByArtist((prev) => {
       const next = !prev;
       saveGroupByArtist(next).catch(() => {});
       if (next) setExpandedArtists(new Set());
       return next;
     });
-  }, []);
+  }, [groupByArtist]);
 
   const toggleArtistSection = useCallback((artist: string) => {
     hapSelect();
@@ -1615,17 +1621,6 @@ export default function App() {
       setFiles(enriched);
       const pls = await loadPlaylists();
       setPlaylists(pls);
-      const covers: Record<string, string> = {};
-      for (const pl of pls) {
-        const songsWithArt = pl.trackIds
-          .map((id) => filesByIdRef.current.get(id))
-          .filter((f): f is Enriched => !!f?.meta?.artworkUri);
-        if (songsWithArt.length === 0) continue;
-        const pick =
-          songsWithArt[Math.floor(Math.random() * songsWithArt.length)];
-        if (pick.meta?.artworkUri) covers[pl.id] = pick.meta.artworkUri;
-      }
-      setPlaylistCovers(covers);
       const grouped = await loadGroupByArtist();
       setGroupByArtist(grouped);
       const hist = await loadWorkouts();
@@ -1682,6 +1677,26 @@ export default function App() {
       return title.includes(q) || artist.includes(q);
     });
   }, [sortedFiles, searchQuery]);
+
+  // Metadata and artwork can be rebuilt after an app update.  Recompute covers
+  // as each track is enriched so playlists update in this first session too,
+  // instead of only after reopening the app.
+  useEffect(() => {
+    const filesById = new Map(files.map((f) => [f.id, f]));
+    setPlaylistCovers((previous) => {
+      const next: Record<string, string> = {};
+      for (const playlist of playlists) {
+        const artwork = playlist.trackIds
+          .map((id) => filesById.get(id)?.meta?.artworkUri)
+          .find((uri): uri is string => !!uri);
+        if (artwork) next[playlist.id] = artwork;
+      }
+      const same =
+        Object.keys(previous).length === Object.keys(next).length &&
+        Object.entries(next).every(([id, uri]) => previous[id] === uri);
+      return same ? previous : next;
+    });
+  }, [files, playlists]);
 
   useEffect(() => {
     (async () => {
@@ -1788,7 +1803,11 @@ export default function App() {
   );
 
   const songsForContext = (ctx: Context): Enriched[] => {
-    if (ctx.kind === 'library') return files;
+    if (ctx.kind === 'library') {
+      return groupByArtist
+        ? groupByArtistSections(files).flatMap((section) => section.data)
+        : files;
+    }
     const pl = playlists.find((p) => p.id === ctx.id);
     if (!pl) return [];
     const map = filesByIdRef.current;
@@ -2536,8 +2555,17 @@ export default function App() {
                     onPress={() => {
                       hapLight();
                       setSearchOpen((prev) => {
-                        if (prev) setSearchQuery('');
-                        return !prev;
+                        const next = !prev;
+                        if (next) {
+                          setTab('songs');
+                          setGroupByArtist((grouped) => {
+                            if (grouped) saveGroupByArtist(false).catch(() => {});
+                            return false;
+                          });
+                        } else {
+                          setSearchQuery('');
+                        }
+                        return next;
                       });
                     }}
                     style={[
@@ -2605,7 +2633,16 @@ export default function App() {
                       />
                       <TextInput
                         value={searchQuery}
-                        onChangeText={setSearchQuery}
+                        onChangeText={(query) => {
+                          if (query.trim()) {
+                            setTab('songs');
+                            setGroupByArtist((grouped) => {
+                              if (grouped) saveGroupByArtist(false).catch(() => {});
+                              return false;
+                            });
+                          }
+                          setSearchQuery(query);
+                        }}
                         placeholder="Buscar música ou artista"
                         placeholderTextColor={theme.textMuted}
                         style={styles.searchInput}
@@ -2681,7 +2718,7 @@ export default function App() {
             <SegmentedTabs tab={tab} onChange={setTab} />
 
             {tab === 'songs' ? (
-              groupByArtist && !selectionMode ? (
+              groupByArtist && !selectionMode && !searchQuery.trim() ? (
                 <SectionList
                   sections={groupByArtistSections(files).map((s) => ({
                     ...s,
