@@ -3,5 +3,16 @@
   "version": "1.0.0",
   "description": "Native AVAudioEngine-based player with true crossfade",
   "main": "src/index.ts",
+  "keywords": ["react-native", "expo", "audio"],
+  "license": "MIT",
+  "author": "",
+  "homepage": "https://github.com/tiagoapdesiqueira/runplayer",
+  "dependencies": {},
+  "devDependencies": {},
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  },
   "private": true
 }
