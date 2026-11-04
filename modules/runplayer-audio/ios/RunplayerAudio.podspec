@@ -8,11 +8,11 @@ Pod::Spec.new do |s|
   s.summary        = package['description']
   s.description    = package['description']
   s.license        = 'MIT'
-  s.author         = ''
+  s.author         = { 'Tiago' => 'tiagoapdesiqueira@gmail.com' }
   s.homepage       = 'https://github.com/tiagoapdesiqueira/runplayer'
-  s.platforms      = { :ios => '15.1', :tvos => '15.1' }
+  s.platform       = :ios, '15.1'
   s.swift_version  = '5.9'
-  s.source         = { git: '' }
+  s.source         = { :git => 'https://github.com/tiagoapdesiqueira/runplayer.git', :tag => "#{s.version}" }
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'

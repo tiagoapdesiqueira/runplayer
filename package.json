@@ -38,7 +38,7 @@
   },
   "expo": {
     "autolinking": {
-      "searchPaths": ["./modules"]
+      "nativeModulesDir": "./modules"
     }
   },
   "private": true
