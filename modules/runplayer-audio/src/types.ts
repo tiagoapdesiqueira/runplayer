@@ -18,6 +18,7 @@ export type StateEvent = {
 export type TrackChangeEvent = {
   index: number;
   trackId: string;
+  isCrossfade?: boolean;
 };
 
 export type RemoteEvent = Record<string, never>;

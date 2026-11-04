@@ -152,7 +152,13 @@ export function useAudioProgress(interval = 300) {
 
 export type AudioEvent =
   | { type: 'stateChanged'; isPlaying: boolean }
-  | { type: 'trackChanged'; index: number; trackId: string; lastIndex: number }
+  | {
+      type: 'trackChanged';
+      index: number;
+      trackId: string;
+      lastIndex: number;
+      isCrossfade: boolean;
+    }
   | { type: 'remotePlay' }
   | { type: 'remotePause' }
   | { type: 'remoteNext' }
@@ -174,6 +180,7 @@ export function useAudioEvents(callback: (event: AudioEvent) => void) {
           index: e.index,
           trackId: e.trackId,
           lastIndex: prev,
+          isCrossfade: e.isCrossfade === true,
         });
       }),
       RunplayerAudio.addListener('onRemotePlay', () =>

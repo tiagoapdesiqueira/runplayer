@@ -1472,6 +1472,7 @@ export default function App() {
   const playingRef = useRef(false);
   const workoutActiveRef = useRef(false);
   const fadeOutStartedRef = useRef(false);
+  const awaitingTrackProgressRef = useRef(false);
 
   const progress = useAudioProgress(500);
 
@@ -1702,6 +1703,16 @@ export default function App() {
     if (!crossfadeEnabled) return;
     if (!playing || !progress.duration || !currentId) return;
     const remaining = progress.duration - progress.position;
+    // A track-change event reaches React before the next native progress
+    // sample.  Do not use the previous track's final position to start yet
+    // another crossfade on the new track.
+    if (awaitingTrackProgressRef.current) {
+      if (remaining > crossfadeSeconds + 0.3) {
+        awaitingTrackProgressRef.current = false;
+        fadeOutStartedRef.current = false;
+      }
+      return;
+    }
     if (remaining <= 0 || remaining > crossfadeSeconds + 0.3) return;
     if (fadeOutStartedRef.current) return;
     fadeOutStartedRef.current = true;
@@ -1739,7 +1750,11 @@ export default function App() {
           setPlaying(ev.isPlaying);
         }
         if (ev.type === 'trackChanged') {
-          fadeOutStartedRef.current = false;
+          // Wait for progress from the newly active native node before
+          // considering another crossfade.  The current React value can still
+          // describe the song that just ended.
+          fadeOutStartedRef.current = true;
+          awaitingTrackProgressRef.current = true;
           const id = ev.trackId;
           setCurrentId(id);
           setRecentlyPlayed((prev) => {
@@ -1749,7 +1764,11 @@ export default function App() {
           });
           const file = filesByIdRef.current.get(id);
           const gain = file?.meta?.gainDb;
-          if (ev.index !== ev.lastIndex && ev.lastIndex >= 0) {
+          if (ev.isCrossfade) {
+            // The native player already handed off the next node at its live
+            // playback position and volume.  A normal fade-in here would
+            // restart the perceived volume from zero.
+          } else if (ev.index !== ev.lastIndex && ev.lastIndex >= 0) {
             fadeInForTrack(gain).catch(() => {});
           } else {
             setTargetVolume(gain).catch(() => {});

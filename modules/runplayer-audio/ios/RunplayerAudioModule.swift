@@ -114,10 +114,11 @@ extension RunplayerAudioModule: AudioEnginePlayerDelegate {
         ])
     }
 
-    func playerDidChangeTrack(index: Int, trackId: String) {
+    func playerDidChangeTrack(index: Int, trackId: String, isCrossfade: Bool) {
         sendEvent("onTrackChanged", [
             "index": index,
             "trackId": trackId,
+            "isCrossfade": isCrossfade,
         ])
     }
 

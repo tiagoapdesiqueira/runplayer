@@ -5,7 +5,7 @@ import UIKit
 protocol AudioEnginePlayerDelegate: AnyObject {
     func playerDidChangePosition(_ position: Double, duration: Double)
     func playerDidChangeState(isPlaying: Bool)
-    func playerDidChangeTrack(index: Int, trackId: String)
+    func playerDidChangeTrack(index: Int, trackId: String, isCrossfade: Bool)
     func playerRemoteCommand(_ command: String)
 }
 
@@ -46,6 +46,7 @@ final class AudioEnginePlayer {
 
     private var positionTimer: Timer?
     private var crossfadeTimer: Timer?
+    private var crossfadeOutgoingNode: AVAudioPlayerNode?
 
     private var sessionInterruptObserver: NSObjectProtocol?
     private var sessionRouteObserver: NSObjectProtocol?
@@ -251,6 +252,10 @@ final class AudioEnginePlayer {
     }
 
     private func handleScheduledPlaybackEnd(on node: AVAudioPlayerNode) {
+        // The timer owns the handoff while the two tracks overlap.  Letting the
+        // outgoing node's completion skip the queue would restart the incoming
+        // track from zero (and could start another transition immediately).
+        if let outgoing = crossfadeOutgoingNode, node === outgoing { return }
         guard node === currentNode else { return }
         guard _isPlaying else { return }
         skipToNext()
@@ -426,6 +431,13 @@ final class AudioEnginePlayer {
             return
         }
         guard _isPlaying, durationSec > 0, !queue.isEmpty, activeIndex >= 0 else { return }
+        // JS progress arrives in intervals, so by the time this call reaches
+        // native code there can be less time remaining than the selected fade.
+        // Finish slightly before the outgoing file ends to keep its completion
+        // handler from restarting the incoming track.
+        let remaining = currentDuration - currentPosition
+        let transitionDuration = min(durationSec, remaining - 0.1)
+        guard transitionDuration > 0 else { return }
         let nextIndex = activeIndex + 1 < queue.count ? activeIndex + 1 : 0
         if nextIndex == activeIndex { return }
 
@@ -443,30 +455,33 @@ final class AudioEnginePlayer {
         let nextRef = nextNode
         let nextIndexCaptured = nextIndex
         let nextFileCaptured = nextFile
+        crossfadeOutgoingNode = nodeRef
 
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
             guard let self = self else { timer.invalidate(); return }
             let elapsed = CACurrentMediaTime() - startHost
-            let t = min(1, elapsed / durationSec)
+            let t = min(1, elapsed / transitionDuration)
             let outVol = currentStartVolume * Float(1 - t)
             let inVol = Float(t)
             nodeRef.volume = outVol
             nextRef.volume = inVol
             if t >= 1 {
+                let incomingDuration = Double(nextFileCaptured.length) / nextFileCaptured.processingFormat.sampleRate
+                let incomingPosition = min(max(0, elapsed), incomingDuration)
                 timer.invalidate()
                 self.crossfadeTimer = nil
                 // Swap: next becomes current
                 self.stopNode(nodeRef)
+                self.crossfadeOutgoingNode = nil
                 nodeRef.volume = 1.0
                 self.activeSlot = otherSlot
                 self.activeIndex = nextIndexCaptured
-                // The next node has been playing for durationSec so far.
+                // The next node has been playing for the entire transition.
                 // Set anchors so currentPosition continues from there.
-                self.pausedPosition = durationSec
-                self.seekOffset = durationSec
+                self.pausedPosition = incomingPosition
+                self.seekOffset = incomingPosition
                 self.playAnchorHostTime = CACurrentMediaTime()
-                _ = nextFileCaptured
-                self.emitTrackChange()
+                self.emitTrackChange(isCrossfade: true)
                 self.pushNowPlaying()
             }
         }
@@ -481,6 +496,7 @@ final class AudioEnginePlayer {
         }
         crossfadeTimer?.invalidate()
         crossfadeTimer = nil
+        crossfadeOutgoingNode = nil
         stopNode(otherNode)
         otherNode.volume = 1.0
         currentNode.volume = 1.0
@@ -548,9 +564,13 @@ final class AudioEnginePlayer {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
-    private func emitTrackChange() {
+    private func emitTrackChange(isCrossfade: Bool = false) {
         guard activeIndex >= 0 && activeIndex < queue.count else { return }
-        delegate?.playerDidChangeTrack(index: activeIndex, trackId: queue[activeIndex].id)
+        delegate?.playerDidChangeTrack(
+            index: activeIndex,
+            trackId: queue[activeIndex].id,
+            isCrossfade: isCrossfade
+        )
     }
 
     // MARK: - Remote commands
